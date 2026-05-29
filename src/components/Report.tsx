@@ -32,8 +32,8 @@ export default function ReportComponent({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Trigger real backend Gemini analysis via /api/analyze-issue
-  const analyzePhotoViaGemini = async (imageBase64: string, fallback: string) => {
+  // Trigger real backend OpenAI analysis via /api/analyze-issue
+  const analyzePhotoViaOpenAI = async (imageBase64: string, fallback: string) => {
     setIsAnalyzing(true);
     setErrorMsg("");
     setAiAnalysisMessage("Indexing photo with Gazette Parse-AI...");
@@ -66,8 +66,8 @@ export default function ReportComponent({
       setDescription(parsed.description || "");
       setAiAnalysisMessage(
         parsed.isSimulated 
-          ? "🤖 Real-world AI Autocomplete simulated! Add your GEMINI_API_KEY in Settings."
-          : "✨ Success! Photo analyzed, catalogued and descriptive inputs pre-filled."
+          ? "AI autocomplete simulated. Add your OPENAI_API_KEY to connect live analysis."
+          : "Success! Photo analyzed, catalogued and descriptive inputs pre-filled."
       );
     } catch (err: any) {
       console.error(err);
@@ -90,7 +90,7 @@ export default function ReportComponent({
       reader.onloadend = () => {
         const resultBase64 = reader.result as string;
         setImagePreview(resultBase64);
-        analyzePhotoViaGemini(resultBase64, "uploaded_file");
+        analyzePhotoViaOpenAI(resultBase64, "uploaded_file");
       };
       reader.readAsDataURL(file);
     }
@@ -101,7 +101,7 @@ export default function ReportComponent({
     if (capturedImage) {
       setImagePreview(capturedImage);
       // Run analysis on captured image
-      analyzePhotoViaGemini(capturedImage, capturedFallbackType || "general");
+      analyzePhotoViaOpenAI(capturedImage, capturedFallbackType || "general");
     }
   });
 
@@ -251,7 +251,7 @@ export default function ReportComponent({
             <p className="text-[10px] uppercase tracking-widest text-editorial-dark/60">{aiAnalysisMessage}</p>
           </div>
           <span className="inline-block px-3 py-1 border border-editorial-dark/30 text-editorial-dark text-[8px] font-bold uppercase tracking-widest bg-editorial-bg">
-            Powered by Gemini
+            Powered by OpenAI
           </span>
         </div>
       ) : (
