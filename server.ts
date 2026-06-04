@@ -3,11 +3,13 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import OpenAI from "openai";
 import dotenv from "dotenv";
+import { getApproximateTorontoWard } from "./src/wards";
 
 dotenv.config();
 
 const app = express();
 const PORT = 3000;
+const geocodeCache = new Map<string, unknown>();
 
 // Enable JSON parsing with 10MB limit for base64 photo uploads
 app.use(express.json({ limit: "10mb" }));
@@ -15,6 +17,75 @@ app.use(express.json({ limit: "10mb" }));
 // API Section
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", time: new Date().toISOString() });
+});
+
+app.get("/api/geocode", async (req, res) => {
+  const rawAddress = typeof req.query.address === "string" ? req.query.address.trim() : "";
+
+  if (!rawAddress) {
+    return res.status(400).json({ error: "Address is required" });
+  }
+
+  const cacheKey = rawAddress.toLowerCase();
+  const cachedResult = geocodeCache.get(cacheKey);
+  if (cachedResult) {
+    return res.json(cachedResult);
+  }
+
+  try {
+    const query = /toronto|ontario|canada/i.test(rawAddress)
+      ? rawAddress
+      : `${rawAddress}, Toronto, Ontario, Canada`;
+    const params = new URLSearchParams({
+      q: query,
+      format: "jsonv2",
+      limit: "1",
+      addressdetails: "1",
+      countrycodes: "ca",
+      bounded: "1",
+      viewbox: "-79.6393,43.8555,-79.1153,43.5810",
+    });
+
+    const response = await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`, {
+      headers: {
+        "User-Agent": "CivicPulseLocalDev/0.1 (local-development)",
+        "Accept-Language": "en",
+      },
+    });
+
+    if (!response.ok) {
+      return res.status(502).json({ error: "Geocoding provider returned an error" });
+    }
+
+    const results = (await response.json()) as Array<{
+      display_name?: string;
+      lat?: string;
+      lon?: string;
+    }>;
+    const match = results[0];
+
+    if (!match?.lat || !match?.lon) {
+      return res.status(404).json({ error: "No Toronto geocode match found" });
+    }
+
+    const geocodedResult = {
+      address: rawAddress,
+      displayName: match.display_name || rawAddress,
+      lat: Number(match.lat),
+      lng: Number(match.lon),
+      ward: getApproximateTorontoWard(Number(match.lat), Number(match.lon)).label,
+      source: "nominatim",
+    };
+
+    geocodeCache.set(cacheKey, geocodedResult);
+    return res.json(geocodedResult);
+  } catch (error: any) {
+    console.error("Geocoding Error:", error);
+    return res.status(500).json({
+      error: "Geocoding failed",
+      details: error.message || error,
+    });
+  }
 });
 
 // AI Analyze Endpoint using OpenAI Responses API

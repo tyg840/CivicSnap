@@ -1,4 +1,5 @@
-import { Edit2, MapPin, Settings, Bell, Lock, CircleUser, LogOut, ChevronRight } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Edit2, MapPin, Settings, Bell, Lock, CircleUser, LogOut, ChevronRight, Trash2, History } from "lucide-react";
 import { User, Issue } from "../types";
 
 interface ProfileProps {
@@ -6,13 +7,40 @@ interface ProfileProps {
   issues: Issue[];
   onNavigateToAuth: () => void;
   onSignOut: () => void;
+  onResetDevelopmentData: () => void;
+  onRecalculateSavedReportLocations: () => Promise<void>;
+  onEditIssue: (issue: Issue) => void;
 }
 
-export default function ProfileComponent({ user, issues, onNavigateToAuth, onSignOut }: ProfileProps) {
+export default function ProfileComponent({
+  user,
+  issues,
+  onNavigateToAuth,
+  onSignOut,
+  onResetDevelopmentData,
+  onRecalculateSavedReportLocations,
+  onEditIssue,
+}: ProfileProps) {
+  const [reportView, setReportView] = useState<"recent" | "history">("recent");
+  const [isRecalculatingLocations, setIsRecalculatingLocations] = useState(false);
+
   // Filter issues reportable by current user
   const userIssues = issues.filter(
     (issue) => (user && issue.userEmail === user.email) || (!user && issue.id.startsWith("user_"))
   );
+
+  const historyEntries = useMemo(() => {
+    return userIssues
+      .flatMap((issue) =>
+        (issue.history || []).map((entry) => ({
+          ...entry,
+          issueId: issue.id,
+          issueTitle: issue.title,
+          issueLocation: issue.location,
+        }))
+      )
+      .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+  }, [userIssues]);
 
   const baselineReports = 12;
   const baselineResolved = 8;
@@ -80,12 +108,39 @@ export default function ProfileComponent({ user, issues, onNavigateToAuth, onSig
 
       {/* Dynamic Recents List display */}
       <section id="user-recents-section" className="space-y-4">
-        <div className="flex items-center justify-between border-b border-editorial-dark pb-2">
-          <h2 className="text-xl font-serif font-bold italic text-editorial-dark tracking-tight">Recent Dispatches Posted</h2>
-          <span className="text-[10px] text-editorial-dark/50 font-sans uppercase font-extrabold tracking-widest">{userIssues.length} Added</span>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-editorial-dark pb-2 gap-3">
+          <div>
+            <h2 className="text-xl font-serif font-bold italic text-editorial-dark tracking-tight">
+              {reportView === "recent" ? "Recent Dispatches Posted" : "Saved Dispatch History"}
+            </h2>
+            <span className="text-[10px] text-editorial-dark/50 font-sans uppercase font-extrabold tracking-widest">
+              {reportView === "recent" ? `${userIssues.length} Added` : `${historyEntries.length} Events`}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 border border-editorial-dark self-start sm:self-auto">
+            <button
+              type="button"
+              onClick={() => setReportView("recent")}
+              className={`px-4 py-2 text-[9px] uppercase tracking-widest font-bold ${
+                reportView === "recent" ? "bg-editorial-dark text-editorial-bg" : "bg-white text-editorial-dark hover:bg-editorial-subtle"
+              }`}
+            >
+              Recent
+            </button>
+            <button
+              type="button"
+              onClick={() => setReportView("history")}
+              className={`px-4 py-2 text-[9px] uppercase tracking-widest font-bold border-l border-editorial-dark ${
+                reportView === "history" ? "bg-editorial-dark text-editorial-bg" : "bg-white text-editorial-dark hover:bg-editorial-subtle"
+              }`}
+            >
+              History
+            </button>
+          </div>
         </div>
 
-        {userIssues.length === 0 ? (
+        {reportView === "recent" && userIssues.length === 0 ? (
           <div id="empty-reports-placeholder" className="bg-white border border-editorial-dark p-10 text-center flex flex-col items-center gap-3 rounded-none">
             <CircleUser className="w-8 h-8 text-editorial-dark/40 stroke-[1.5]" />
             <div className="text-xs uppercase tracking-widest font-bold text-editorial-dark/60">No local records found</div>
@@ -93,7 +148,7 @@ export default function ProfileComponent({ user, issues, onNavigateToAuth, onSig
               Any pothole, graffiti, or streetlight reports you file from the Report column will automatically index here.
             </p>
           </div>
-        ) : (
+        ) : reportView === "recent" ? (
           <div id="reports-cards-grid" className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {userIssues.map((issue) => (
               <div
@@ -117,6 +172,45 @@ export default function ProfileComponent({ user, issues, onNavigateToAuth, onSig
                   </p>
                   <p className="text-xs text-editorial-dark/80 mt-2 line-clamp-2 leading-relaxed">
                     {issue.description || "No general description provided."}
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => onEditIssue(issue)}
+                  className="self-start border border-editorial-dark px-3 py-2 text-[9px] uppercase tracking-widest font-bold flex items-center gap-1.5 hover:bg-editorial-dark hover:text-editorial-bg transition-colors"
+                >
+                  <Edit2 className="w-3.5 h-3.5" />
+                  <span>Edit Report</span>
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : historyEntries.length === 0 ? (
+          <div id="empty-history-placeholder" className="bg-white border border-editorial-dark p-10 text-center flex flex-col items-center gap-3 rounded-none">
+            <History className="w-8 h-8 text-editorial-dark/40 stroke-[1.5]" />
+            <div className="text-xs uppercase tracking-widest font-bold text-editorial-dark/60">No saved activity yet</div>
+            <p className="text-xs text-editorial-dark/70 font-serif max-w-sm">
+              Create or edit a local report to build a browser-saved dispatch history.
+            </p>
+          </div>
+        ) : (
+          <div id="reports-history-list" className="bg-white border border-editorial-dark divide-y divide-editorial-dark/15">
+            {historyEntries.map((entry) => (
+              <div key={entry.id} className="p-4 flex items-start gap-4">
+                <div className="w-9 h-9 border border-editorial-dark bg-editorial-bg flex items-center justify-center shrink-0">
+                  <History className="w-4 h-4 text-editorial-dark" />
+                </div>
+                <div className="min-w-0 flex-grow">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-editorial-dark">{entry.action}</h3>
+                    <span className="text-[9px] text-editorial-dark/50 font-mono">
+                      {new Date(entry.timestamp).toLocaleString()}
+                    </span>
+                  </div>
+                  <p className="text-xs text-editorial-dark/80 mt-1 leading-relaxed">{entry.summary}</p>
+                  <p className="text-[10px] text-editorial-dark/50 mt-1 uppercase tracking-wide">
+                    {entry.issueTitle} &bull; {entry.issueLocation}
                   </p>
                 </div>
               </div>
@@ -193,6 +287,29 @@ export default function ProfileComponent({ user, issues, onNavigateToAuth, onSig
             <span>Connect Accounts</span>
           </button>
         )}
+
+        <button
+          id="profile-recalculate-report-locations-btn"
+          onClick={async () => {
+            setIsRecalculatingLocations(true);
+            await onRecalculateSavedReportLocations();
+            setIsRecalculatingLocations(false);
+          }}
+          disabled={isRecalculatingLocations}
+          className="w-full mt-2 border border-editorial-dark bg-transparent font-bold text-[10px] uppercase tracking-widest py-3.5 rounded-none transition-all duration-150 flex items-center justify-center gap-2 active:scale-98 cursor-pointer text-editorial-dark hover:bg-editorial-subtle disabled:opacity-50 disabled:cursor-wait"
+        >
+          <MapPin className="w-3.5 h-3.5" />
+          <span>{isRecalculatingLocations ? "Recalculating Map Positions..." : "Recalculate Saved Map Positions"}</span>
+        </button>
+
+        <button
+          id="profile-reset-development-data-btn"
+          onClick={onResetDevelopmentData}
+          className="w-full mt-2 border border-red-600 bg-transparent font-bold text-[10px] uppercase tracking-widest py-3.5 rounded-none transition-all duration-150 flex items-center justify-center gap-2 active:scale-98 cursor-pointer text-red-600 hover:bg-red-500/5"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          <span>Reset Local Development Data</span>
+        </button>
       </section>
     </div>
   );

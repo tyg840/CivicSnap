@@ -1,5 +1,14 @@
 export type IssueCategory = 'potholes' | 'graffiti' | 'streetlights';
 
+export type IssueHistoryAction = 'Created' | 'Edited';
+
+export interface IssueHistoryEntry {
+  id: string;
+  action: IssueHistoryAction;
+  summary: string;
+  timestamp: string;
+}
+
 export interface Issue {
   id: string;
   title: string;
@@ -15,6 +24,7 @@ export interface Issue {
   ward: string;
   userEmail?: string;
   votedByUser?: boolean;
+  history?: IssueHistoryEntry[];
 }
 
 export interface User {

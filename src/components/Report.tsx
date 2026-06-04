@@ -1,9 +1,19 @@
-import React, { useState, useRef } from "react";
-import { Camera, Edit, MapPin, Upload, ArrowRight, RefreshCw, AlertCircle, Trash2, Sparkles } from "lucide-react";
+import React, { useEffect, useState, useRef } from "react";
+import { Camera, Edit, MapPin, Upload, ArrowRight, AlertCircle, Trash2, Sparkles, CheckCircle2, LocateFixed } from "lucide-react";
 import { IssueCategory, Issue } from "../types";
+import { MOCK_LOCATIONS, TORONTO_FALLBACK_LOCATION, resolveMockLocation } from "../locations";
+import {
+  getLocationSuggestion,
+  resolveBrowserLocation,
+  resolveFallbackLocation,
+  resolveReportLocation,
+} from "../geocoding";
 
 interface ReportProps {
   onAddIssue: (issue: Omit<Issue, "id" | "date" | "votes" | "status" | "votedByUser">) => void;
+  onUpdateIssue: (issueId: string, issue: Omit<Issue, "id" | "date" | "votes" | "status" | "votedByUser">) => void;
+  editingIssue: Issue | null;
+  onCancelEdit: () => void;
   onOpenSimulator: () => void;
   capturedImage: string | null;
   capturedFallbackType: string | null;
@@ -12,16 +22,20 @@ interface ReportProps {
 
 export default function ReportComponent({
   onAddIssue,
+  onUpdateIssue,
+  editingIssue,
+  onCancelEdit,
   onOpenSimulator,
   capturedImage,
   capturedFallbackType,
   resetCapturedImage,
 }: ReportProps) {
+  const isEditing = Boolean(editingIssue);
   const [reportMode, setReportMode] = useState<"snap" | "manual">("snap");
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<IssueCategory | "">("");
   const [description, setDescription] = useState("");
-  const [locationAddress, setLocationAddress] = useState("1428 Elm Street");
+  const [locationAddress, setLocationAddress] = useState(MOCK_LOCATIONS[0].address);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   // AI loading and reporting flow states
@@ -29,8 +43,28 @@ export default function ReportComponent({
   const [aiAnalysisMessage, setAiAnalysisMessage] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
   const [successAnimation, setSuccessAnimation] = useState(false);
+  const [isResolvingLocation, setIsResolvingLocation] = useState(false);
+  const [validatedLocation, setValidatedLocation] = useState<Awaited<ReturnType<typeof resolveReportLocation>> | null>(null);
+  const [locationValidationStatus, setLocationValidationStatus] = useState<"idle" | "valid" | "fallback" | "invalid" | "denied">("idle");
+  const [locationSuggestion, setLocationSuggestion] = useState<{ label: string; address: string } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const selectedLocation = validatedLocation || resolveMockLocation(locationAddress);
+
+  const resetForm = () => {
+    setTitle("");
+    setCategory("");
+    setDescription("");
+    setLocationAddress(MOCK_LOCATIONS[0].address);
+    setImagePreview(null);
+    setAiAnalysisMessage("");
+    setErrorMsg("");
+    setIsResolvingLocation(false);
+    setValidatedLocation(null);
+    setLocationValidationStatus("idle");
+    setLocationSuggestion(null);
+    resetCapturedImage();
+  };
 
   // Trigger real backend OpenAI analysis via /api/analyze-issue
   const analyzePhotoViaOpenAI = async (imageBase64: string, fallback: string) => {
@@ -97,25 +131,113 @@ export default function ReportComponent({
   };
 
   // Handle snapping callback inside App to populate Report state
-  useState(() => {
+  useEffect(() => {
     if (capturedImage) {
       setImagePreview(capturedImage);
       // Run analysis on captured image
       analyzePhotoViaOpenAI(capturedImage, capturedFallbackType || "general");
     }
-  });
+  }, [capturedImage, capturedFallbackType]);
+
+  useEffect(() => {
+    if (!editingIssue) {
+      if (!capturedImage) {
+        resetForm();
+      }
+      return;
+    }
+
+    setReportMode(editingIssue.image ? "snap" : "manual");
+    setTitle(editingIssue.title);
+    setCategory(editingIssue.category);
+    setDescription(editingIssue.description);
+    setLocationAddress(editingIssue.location);
+    setImagePreview(editingIssue.image || null);
+    setValidatedLocation(null);
+    setLocationValidationStatus("idle");
+    setLocationSuggestion(null);
+    setAiAnalysisMessage("");
+    setErrorMsg("");
+  }, [editingIssue, capturedImage]);
+
+  const validateLocation = async () => {
+    if (!locationAddress.trim()) {
+      setValidatedLocation(null);
+      setLocationValidationStatus("invalid");
+      setErrorMsg("Enter a Toronto address before validating the map location.");
+      return null;
+    }
+
+    setIsResolvingLocation(true);
+    setErrorMsg("");
+    setLocationSuggestion(null);
+
+    try {
+      const resolvedLocation = await resolveReportLocation(locationAddress);
+      setIsResolvingLocation(false);
+      setValidatedLocation(resolvedLocation);
+      setLocationValidationStatus(resolvedLocation.source === "fallback" ? "fallback" : "valid");
+      return resolvedLocation;
+    } catch {
+      const suggestion = getLocationSuggestion(locationAddress);
+      setIsResolvingLocation(false);
+      setValidatedLocation(null);
+      setLocationSuggestion(suggestion);
+      setLocationValidationStatus("invalid");
+      setErrorMsg("No Toronto match found. Please correct and validate the location before submitting.");
+      return null;
+    }
+  };
+
+  const useTorontoCoreFallback = () => {
+    const fallbackLocation = resolveFallbackLocation(TORONTO_FALLBACK_LOCATION.address);
+    setLocationAddress(TORONTO_FALLBACK_LOCATION.address);
+    setValidatedLocation(fallbackLocation);
+    setLocationValidationStatus("fallback");
+    setLocationSuggestion(null);
+    setErrorMsg("");
+  };
+
+  const useBrowserLocation = () => {
+    if (!navigator.geolocation) {
+      setLocationValidationStatus("denied");
+      setErrorMsg("Browser location is not available in this browser.");
+      return;
+    }
+
+    setIsResolvingLocation(true);
+    setErrorMsg("");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const browserLocation = resolveBrowserLocation(position.coords.latitude, position.coords.longitude);
+        setLocationAddress(browserLocation.address);
+        setValidatedLocation(browserLocation);
+        setLocationValidationStatus("valid");
+        setLocationSuggestion(null);
+        setIsResolvingLocation(false);
+      },
+      () => {
+        setValidatedLocation(null);
+        setLocationValidationStatus("denied");
+        setErrorMsg("Location permission was denied or unavailable. Type and validate a Toronto address instead.");
+        setIsResolvingLocation(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 60000,
+      }
+    );
+  };
 
   const clearSelectedPhoto = () => {
     setImagePreview(null);
     resetCapturedImage();
-    setTitle("");
-    setCategory("");
-    setDescription("");
     setAiAnalysisMessage("");
     setErrorMsg("");
   };
 
-  const handleFormSubmission = (e: React.FormEvent) => {
+  const handleFormSubmission = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!title) {
       setErrorMsg("Title is required to log a municipal concern.");
@@ -126,37 +248,34 @@ export default function ReportComponent({
       return;
     }
 
-    // Set mock coordinates based on location inputs
-    let lat = 43.6532; // Default Toronto Lat
-    let lng = -79.3832; // Default Toronto Lng
-
-    if (locationAddress.toLowerCase().includes("elm")) {
-      lat = 43.6598;
-      lng = -79.3901;
-    } else if (locationAddress.toLowerCase().includes("king")) {
-      lat = 43.6476;
-      lng = -79.3801;
-    } else if (locationAddress.toLowerCase().includes("queen")) {
-      lat = 43.6491;
-      lng = -79.3951;
+    const resolvedLocation = validatedLocation?.address === locationAddress ? validatedLocation : await validateLocation();
+    if (!resolvedLocation) {
+      return;
     }
 
     setSuccessAnimation(true);
 
     // Dynamic submission callback
     setTimeout(() => {
-      onAddIssue({
+      const reportData = {
         title,
         description,
         category: category as IssueCategory,
-        location: locationAddress,
-        lat,
-        lng,
+        location: resolvedLocation.address,
+        lat: resolvedLocation.lat,
+        lng: resolvedLocation.lng,
         image: imagePreview || "https://images.unsplash.com/photo-1515162305285-0293e4767cc2?w=800",
-        ward: "Ward 1 - Downtown", // Ward defaults
-      });
+        ward: resolvedLocation.ward,
+      };
+
+      if (editingIssue) {
+        onUpdateIssue(editingIssue.id, reportData);
+      } else {
+        onAddIssue(reportData);
+      }
+
       setSuccessAnimation(false);
-      clearSelectedPhoto();
+      resetForm();
     }, 1500);
   };
 
@@ -169,10 +288,12 @@ export default function ReportComponent({
             <Sparkles className="w-8 h-8" />
           </div>
           <h2 className="text-3xl font-serif font-bold uppercase tracking-tight text-editorial-dark leading-none">
-            Dispatch Logged
+            {isEditing ? "Dispatch Updated" : "Dispatch Logged"}
           </h2>
           <p className="text-sm text-editorial-dark/80 mt-3 max-w-sm font-sans">
-            Your physical record has been safely written to the dynamic map, coordinates aligned, and municipal action alerts dispatched!
+            {isEditing
+              ? "Your local civic record has been revised and saved back to browser storage."
+              : "Your physical record has been safely written to the dynamic map, coordinates aligned, and municipal action alerts dispatched!"}
           </p>
           <div className="w-40 h-1 border border-editorial-dark/25 overflow-hidden mt-6 bg-white shrink-0">
             <div className="h-full bg-editorial-dark animate-progress-bar" />
@@ -183,9 +304,22 @@ export default function ReportComponent({
       {/* Main Header */}
       <div id="report-header" className="border-b border-editorial-dark/15 pb-4">
         <span className="text-[10px] uppercase font-bold tracking-[0.2em] opacity-40 block mb-1">New Gazette Record</span>
-        <h1 className="text-3xl font-serif font-bold uppercase tracking-tight text-editorial-dark">Submit Log Entry</h1>
-        <p className="text-sm text-editorial-dark/70 font-serif italic mt-1">Empower community oversight by logging physical city concerns under verification protocols.</p>
+        <h1 className="text-3xl font-serif font-bold uppercase tracking-tight text-editorial-dark">
+          {isEditing ? "Edit Log Entry" : "Submit Log Entry"}
+        </h1>
+        <p className="text-sm text-editorial-dark/70 font-serif italic mt-1">
+          {isEditing
+            ? "Revise your locally saved report details while keeping its existing civic record."
+            : "Empower community oversight by logging physical city concerns under verification protocols."}
+        </p>
       </div>
+
+      {isResolvingLocation && (
+        <div className="bg-white border border-editorial-dark text-editorial-dark px-4 py-3 text-xs leading-relaxed flex items-center gap-2.5 font-bold select-none">
+          <MapPin className="w-4 h-4 text-editorial-dark shrink-0" />
+          <span>Resolving report location on the Toronto map...</span>
+        </div>
+      )}
 
       {/* Toggle selector buttons for AI capture vs Manual log */}
       <div id="report-tab-toggles" className="grid grid-cols-2 gap-3 select-none">
@@ -223,6 +357,22 @@ export default function ReportComponent({
           <span className="text-[8px] opacity-70 uppercase tracking-wider mt-1">Step-by-step description</span>
         </button>
       </div>
+
+      {isEditing && (
+        <div className="bg-white border border-editorial-dark text-editorial-dark px-4 py-3 text-xs leading-relaxed flex items-center justify-between gap-3 font-medium select-none">
+          <span className="uppercase tracking-widest text-[9px] font-bold">Editing INDEX_{editingIssue?.id.toUpperCase().slice(0, 6)}</span>
+          <button
+            type="button"
+            onClick={() => {
+              resetForm();
+              onCancelEdit();
+            }}
+            className="border border-editorial-dark px-3 py-1.5 text-[9px] uppercase tracking-widest font-bold hover:bg-editorial-subtle"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
 
       {/* ERROR / AI STATUS ALERTS */}
       {errorMsg && (
@@ -370,15 +520,127 @@ export default function ReportComponent({
           {/* Inline location framing visual mapping placeholder */}
           <div className="flex flex-col gap-1.5 select-none font-sans">
             <div className="flex justify-between items-center">
-              <label className="text-[10px] font-sans uppercase font-bold tracking-[0.2em] opacity-40">Spatial Geotag</label>
-              <button 
+              <label className="text-[10px] font-sans uppercase font-bold tracking-[0.2em] opacity-40" htmlFor="issue-location">Spatial Geotag</label>
+            </div>
+
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                id="issue-location"
+                type="text"
+                className="w-full text-editorial-dark text-xs uppercase tracking-wider py-3 px-4 bg-white rounded-none border border-editorial-dark focus:border-editorial-dark focus:ring-0 outline-none"
+                placeholder="Type the Toronto address where this issue is located"
+                value={locationAddress}
+                onChange={(e) => {
+                  setLocationAddress(e.target.value);
+                  setValidatedLocation(null);
+                  setLocationValidationStatus("idle");
+                  setLocationSuggestion(null);
+                }}
+                required
+              />
+              <button
                 type="button"
-                onClick={() => setLocationAddress(locationAddress === "1428 Elm Street" ? "123 King St W, Toronto" : "1428 Elm Street")}
-                className="text-[9px] uppercase tracking-widest text-editorial-dark font-bold hover:opacity-65 border-b border-editorial-dark"
+                onClick={validateLocation}
+                disabled={isResolvingLocation}
+                className="border border-editorial-dark px-4 py-3 text-[9px] uppercase tracking-widest font-bold flex items-center justify-center gap-1.5 bg-white hover:bg-editorial-subtle disabled:opacity-50 disabled:cursor-wait shrink-0"
               >
-                Toggle Mock Location
+                <LocateFixed className="w-3.5 h-3.5" />
+                <span>{isResolvingLocation ? "Checking" : "Validate"}</span>
               </button>
             </div>
+
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[9px] text-editorial-dark/45 font-bold uppercase tracking-widest">Testing examples</span>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={useBrowserLocation}
+                  disabled={isResolvingLocation}
+                  className="text-[9px] uppercase tracking-widest text-editorial-dark font-bold hover:opacity-65 border-b border-editorial-dark disabled:opacity-50"
+                >
+                  Use My Location
+                </button>
+                <button
+                  type="button"
+                  onClick={useTorontoCoreFallback}
+                  className="text-[9px] uppercase tracking-widest text-editorial-dark font-bold hover:opacity-65 border-b border-editorial-dark"
+                >
+                  Use Toronto Core
+                </button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {MOCK_LOCATIONS.map((location) => (
+                <button
+                  key={location.address}
+                  type="button"
+                  onClick={() => {
+                    setLocationAddress(location.address);
+                    setValidatedLocation({ ...location, source: "mock" });
+                    setLocationValidationStatus("valid");
+                    setLocationSuggestion(null);
+                    setErrorMsg("");
+                  }}
+                  className={`border px-3 py-2 text-[9px] uppercase tracking-widest font-bold text-left transition-colors ${
+                    locationAddress === location.address
+                      ? "bg-editorial-dark text-editorial-bg border-editorial-dark"
+                      : "bg-white text-editorial-dark border-editorial-dark/40 hover:border-editorial-dark"
+                  }`}
+                >
+                  Example: {location.label}
+                </button>
+              ))}
+            </div>
+
+            {locationValidationStatus !== "idle" && (
+              <div className={`border px-4 py-3 text-xs leading-relaxed flex items-start gap-2.5 ${
+                locationValidationStatus === "valid"
+                  ? "bg-white border-editorial-dark text-editorial-dark"
+                  : locationValidationStatus === "fallback"
+                    ? "bg-editorial-accent/30 border-editorial-dark text-editorial-dark"
+                    : "bg-white border-red-600 text-red-600"
+              }`}>
+                {locationValidationStatus === "valid" ? (
+                  <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
+                )}
+                <div>
+                  <div className="font-bold uppercase tracking-widest text-[9px]">
+                    {locationValidationStatus === "valid"
+                      ? "Location Validated"
+                      : locationValidationStatus === "fallback"
+                        ? "Toronto Core Fallback"
+                        : locationValidationStatus === "denied"
+                          ? "Location Permission Unavailable"
+                          : "No Toronto Match Found"}
+                  </div>
+                  <div className="mt-1">
+                    {validatedLocation
+                      ? `${validatedLocation.displayName || validatedLocation.address} - ${validatedLocation.ward}`
+                      : locationSuggestion
+                        ? `Did you mean ${locationSuggestion.label}?`
+                        : "Type a Toronto address, then validate it before submitting."}
+                  </div>
+                  {locationSuggestion && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setLocationAddress(locationSuggestion.address);
+                        setValidatedLocation(null);
+                        setLocationValidationStatus("idle");
+                        setLocationSuggestion(null);
+                        setErrorMsg("");
+                      }}
+                      className="mt-2 border border-editorial-dark px-3 py-1.5 text-[9px] uppercase tracking-widest font-bold hover:bg-editorial-subtle"
+                    >
+                      Use Suggestion
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
             
             <div id="inline-geotag-strip" className="flex items-center gap-3 p-3 bg-white border border-editorial-dark rounded-none">
               <div className="w-10 h-10 border border-editorial-dark overflow-hidden shrink-0 relative">
@@ -390,10 +652,10 @@ export default function ReportComponent({
                 />
               </div>
               <div className="space-y-0.5">
-                <span className="text-xs font-bold text-editorial-dark uppercase tracking-wider block">{locationAddress}</span>
+                <span className="text-xs font-bold text-editorial-dark uppercase tracking-wider block">{selectedLocation.address}</span>
                 <span className="text-[8px] text-editorial-dark/50 font-bold block uppercase flex items-center gap-1 mt-0.5">
                   <MapPin className="w-3 h-3" />
-                  Auto-coordinates aligned near Toronto
+                  {selectedLocation.ward} &bull; Mock coordinates aligned near Toronto
                 </span>
               </div>
             </div>
@@ -418,9 +680,10 @@ export default function ReportComponent({
           <button
             id="submit-logreport-btn"
             type="submit"
+            disabled={isResolvingLocation}
             className="w-full bg-editorial-dark text-editorial-bg font-bold py-4 px-4 rounded-none flex items-center justify-center gap-2 transition-all text-[10px] uppercase tracking-widest mt-4 cursor-pointer border border-editorial-dark hover:bg-editorial-dark/95"
           >
-            <span>Submit to Gazette Log</span>
+            <span>{isEditing ? "Save Gazette Log" : "Submit to Gazette Log"}</span>
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
 

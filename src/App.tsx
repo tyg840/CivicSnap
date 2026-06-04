@@ -8,6 +8,55 @@ import ProfileComponent from "./components/Profile";
 import ReportComponent from "./components/Report";
 import CameraViewComponent from "./components/CameraView";
 import AuthComponent from "./components/Auth";
+import {
+  clearStoredUser,
+  loadStoredIssues,
+  loadStoredUser,
+  resetStoredDevelopmentData,
+  saveStoredIssues,
+  saveStoredUser,
+} from "./storage";
+import { findKnownReportLocation } from "./locations";
+import { resolveReportLocation } from "./geocoding";
+
+const createHistoryEntry = (action: "Created" | "Edited", summary: string) => ({
+  id: `history_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+  action,
+  summary,
+  timestamp: new Date().toISOString(),
+});
+
+const getKnownWardLabel = (address: string) => findKnownReportLocation(address)?.ward || "Ward 13 - Toronto Centre";
+
+const migrateKnownReportLocations = (storedIssues: Issue[]) => {
+  let didMigrate = false;
+
+  const migratedIssues = storedIssues.map((issue) => {
+    const knownLocation = findKnownReportLocation(issue.location);
+    if (!knownLocation) {
+      return issue;
+    }
+
+    const shouldMigrate =
+      issue.lat !== knownLocation.lat ||
+      issue.lng !== knownLocation.lng ||
+      issue.ward !== knownLocation.ward;
+
+    if (!shouldMigrate) {
+      return issue;
+    }
+
+    didMigrate = true;
+    return {
+      ...issue,
+      lat: knownLocation.lat,
+      lng: knownLocation.lng,
+      ward: knownLocation.ward,
+    };
+  });
+
+  return { didMigrate, migratedIssues };
+};
 
 // Default seed issues detailing standard Toronto landmarks matching the mockups
 const DEFAULT_ISSUES: Issue[] = [
@@ -17,13 +66,13 @@ const DEFAULT_ISSUES: Issue[] = [
     description: "Large pothole forming in the right lane. It's causing cars to swerve and needs immediate attention before someone damages their tire.",
     category: "potholes",
     location: "123 King St W, Toronto",
-    lat: 43.6476,
-    lng: -79.3801,
+    lat: 43.640261,
+    lng: -79.420964,
     image: "https://lh3.googleusercontent.com/aida-public/AB6AXuA0i1iByB4CFft5JRVmO57VSnhGRhK53CAXKgx_Q9xQr2a80xYlfb4XdAFsohxtsHmqdMxOKpYL5dTlG6Bks6NKVHrdZTUhYw7OmZ30MDwKJmFovT-v7F_tbj-XTvtxVxVy6Yi7c1CmIr_SZ-JU0oAxTztwkcOf9TpHzcmwNupu0eSorNj7xNQ4qNW-WFygFupy5toCtBwCJlY6RWYWLRFTaFHHFufI1EKJzZLJclpaqkvIw37QQDaAJ2CcA10xo53Sq18qGUzBCow",
     status: "In Progress",
     votes: 24,
     date: "2 days ago",
-    ward: "Ward 1 - Downtown",
+    ward: getKnownWardLabel("123 King St W, Toronto"),
   },
   {
     id: "graffiti_1",
@@ -31,13 +80,13 @@ const DEFAULT_ISSUES: Issue[] = [
     description: "Spray-painted tag covering several square feet on the historical brick facade. Located near the alley intersection.",
     category: "graffiti",
     location: "450 Queen St W, Toronto",
-    lat: 43.6491,
-    lng: -79.3951,
+    lat: 43.6482733,
+    lng: -79.3992668,
     image: "https://lh3.googleusercontent.com/aida-public/AB6AXuAyVf2Q93UJf5JfeIqeU9DWNgwXf3GE8-ZLju9M8hlTlQDd1HJSAlKmPvaHNPE2B5J-OGv1gwhytM3MnmVIWcR2CPTcdlX3DDY3wEARc59R-nFjJF-ITfr7wv9MVi4XlDbJ5PknpMB9pWuOVArJEV4ljr8AXgORgisma90CWhrL8kGIGtcqaJfybVr3xUu8HN4BcoP08sVATqw4mohjiY7p29Tm4E9p5NVp5F5TQ7BIdXzQg8Y4lwdRg0JIEKCK6u6jL8_g9tBfn7s",
     status: "Reported",
     votes: 8,
     date: "1 day ago",
-    ward: "Ward 3 - East End",
+    ward: getKnownWardLabel("450 Queen St W, Toronto"),
   },
   {
     id: "streetlight_1",
@@ -45,13 +94,13 @@ const DEFAULT_ISSUES: Issue[] = [
     description: "The streetlight outside lamp number 142 Elm St has been flickering in cycles and is now completely dark for long intervals.",
     category: "streetlights",
     location: "142 Elm St, Toronto",
-    lat: 43.6598,
-    lng: -79.3901,
+    lat: 43.6571477,
+    lng: -79.3851052,
     image: "https://lh3.googleusercontent.com/aida-public/AB6AXuC6ckJPBM7YlTHLUUYZ0ri_9v0G6kSzt84wswekqOvW57WtWtSHxaTtCymRXWgJo4Ex__oN5mar6rShbeG5bMVE8fNGa03qMskzSukRu86LQYULz6mODzJQ3gTxY1Yj5v-Nbj6GyLrCu2M3szsTh-mOakQRdhWUn3PqI3DascsPxEFFgDk6rdwn7FGM4FFmqnAlOb0A7IeWWhhb7eBuW8jCTzQbVrwAQjBQuwWr750CIGmctDDoLUqY_aEkiL71iXoVZOQibAD_JpI",
     status: "In Progress",
     votes: 15,
     date: "3 days ago",
-    ward: "Ward 5 - South Park",
+    ward: getKnownWardLabel("142 Elm St, Toronto"),
   }
 ];
 
@@ -60,6 +109,7 @@ export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [issues, setIssues] = useState<Issue[]>([]);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [editingIssue, setEditingIssue] = useState<Issue | null>(null);
   
   // Temporary storage for captured camera assets
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -67,37 +117,87 @@ export default function App() {
 
   // Initialize and load persistent resources from localStorage
   useEffect(() => {
-    const cachedUser = localStorage.getItem("civicpulse_user");
+    const cachedUser = loadStoredUser();
     if (cachedUser) {
-      setUser(JSON.parse(cachedUser));
+      setUser(cachedUser);
     }
 
-    const cachedIssues = localStorage.getItem("civicpulse_issues");
+    const cachedIssues = loadStoredIssues();
     if (cachedIssues) {
-      setIssues(JSON.parse(cachedIssues));
+      const { didMigrate, migratedIssues } = migrateKnownReportLocations(cachedIssues);
+      setIssues(migratedIssues);
+      if (didMigrate) {
+        saveStoredIssues(migratedIssues);
+      }
     } else {
       setIssues(DEFAULT_ISSUES);
-      localStorage.setItem("civicpulse_issues", JSON.stringify(DEFAULT_ISSUES));
+      saveStoredIssues(DEFAULT_ISSUES);
     }
   }, []);
 
   const saveIssues = (updatedIssues: Issue[]) => {
     setIssues(updatedIssues);
-    localStorage.setItem("civicpulse_issues", JSON.stringify(updatedIssues));
+    saveStoredIssues(updatedIssues);
   };
 
   // User auth success callback
   const handleAuthSuccess = (loggedUser: User) => {
     setUser(loggedUser);
-    localStorage.setItem("civicpulse_user", JSON.stringify(loggedUser));
+    saveStoredUser(loggedUser);
     setCurrentTab("profile"); // Redirect to Profile on login
   };
 
   // Logout callback
   const handleSignOut = () => {
     setUser(null);
-    localStorage.removeItem("civicpulse_user");
+    clearStoredUser();
     setCurrentTab("home");
+  };
+
+  const handleResetDevelopmentData = () => {
+    resetStoredDevelopmentData(DEFAULT_ISSUES);
+    setUser(null);
+    setIssues(DEFAULT_ISSUES);
+    setEditingIssue(null);
+    setCapturedImage(null);
+    setCapturedFallbackType(null);
+    setCurrentTab("home");
+  };
+
+  const handleRecalculateSavedReportLocations = async () => {
+    const updatedIssues = await Promise.all(
+      issues.map(async (issue) => {
+        const knownLocation = findKnownReportLocation(issue.location);
+        const resolvedLocation = knownLocation || await resolveReportLocation(issue.location).catch(() => null);
+
+        if (!resolvedLocation) {
+          return issue;
+        }
+
+        return {
+          ...issue,
+          location: resolvedLocation.address,
+          lat: resolvedLocation.lat,
+          lng: resolvedLocation.lng,
+          ward: resolvedLocation.ward,
+          history: [
+            ...(issue.history || []),
+            createHistoryEntry(
+              "Edited",
+              `Recalculated map position for "${issue.title}".`
+            ),
+          ],
+        };
+      })
+    );
+
+    saveIssues(updatedIssues);
+    setCurrentTab("profile");
+  };
+
+  const navigateToCreateReport = () => {
+    setEditingIssue(null);
+    setCurrentTab("report");
   };
 
   // Support / Vote toggler
@@ -133,11 +233,56 @@ export default function App() {
       date: "Just now",
       votedByUser: true,
       userEmail: user?.email || "anonymous_user",
+      history: [
+        createHistoryEntry(
+          "Created",
+          `Created report "${newIssueData.title}" at ${newIssueData.location}.`
+        ),
+      ],
     };
 
     const updated = [newIssue, ...issues];
     saveIssues(updated);
     setCurrentTab("map"); // Automatically slide back to map to see pin
+  };
+
+  const handleEditIssue = (issue: Issue) => {
+    setEditingIssue(issue);
+    setCapturedImage(null);
+    setCapturedFallbackType(null);
+    setCurrentTab("report");
+  };
+
+  const handleUpdateIssue = (issueId: string, updatedIssueData: Omit<Issue, "id" | "date" | "votes" | "status" | "votedByUser">) => {
+    const updated = issues.map((issue) => {
+      if (issue.id !== issueId) {
+        return issue;
+      }
+
+      return {
+        ...issue,
+        ...updatedIssueData,
+        userEmail: issue.userEmail,
+        history: [
+          ...(issue.history || []),
+          createHistoryEntry(
+            "Edited",
+            `Updated report details for "${updatedIssueData.title}".`
+          ),
+        ],
+      };
+    });
+
+    saveIssues(updated);
+    setEditingIssue(null);
+    setCurrentTab("profile");
+  };
+
+  const handleCancelReportEdit = () => {
+    setEditingIssue(null);
+    setCapturedImage(null);
+    setCapturedFallbackType(null);
+    setCurrentTab("profile");
   };
 
   const handleCameraCapture = (imageData: string, fallbackType: string) => {
@@ -196,7 +341,7 @@ export default function App() {
           </button>
 
           <button
-            onClick={() => setCurrentTab("report")}
+            onClick={navigateToCreateReport}
             className={`py-1 transition-all flex items-center gap-1.5 cursor-pointer ${
               currentTab === "report" ? "border-b border-editorial-dark font-bold text-editorial-dark" : "text-editorial-dark/60 hover:text-editorial-dark/100"
             }`}
@@ -267,20 +412,23 @@ export default function App() {
           <MapComponent
             issues={issues}
             onVote={handleVoteSupport}
-            onNavigateToReport={() => setCurrentTab("report")}
+            onNavigateToReport={navigateToCreateReport}
           />
         )}
 
         {currentTab === "statistics" && (
           <StatisticsComponent
             issues={issues}
-            onNavigateToReport={() => setCurrentTab("report")}
+            onNavigateToReport={navigateToCreateReport}
           />
         )}
 
         {currentTab === "report" && (
           <ReportComponent
             onAddIssue={handleAddNewIssue}
+            onUpdateIssue={handleUpdateIssue}
+            editingIssue={editingIssue}
+            onCancelEdit={handleCancelReportEdit}
             onOpenSimulator={() => setIsCameraOpen(true)}
             capturedImage={capturedImage}
             capturedFallbackType={capturedFallbackType}
@@ -297,6 +445,9 @@ export default function App() {
             issues={issues}
             onNavigateToAuth={() => setCurrentTab("auth")}
             onSignOut={handleSignOut}
+            onResetDevelopmentData={handleResetDevelopmentData}
+            onRecalculateSavedReportLocations={handleRecalculateSavedReportLocations}
+            onEditIssue={handleEditIssue}
           />
         )}
 
@@ -332,7 +483,7 @@ export default function App() {
         </button>
 
         <button
-          onClick={() => setCurrentTab("report")}
+          onClick={navigateToCreateReport}
           className={`flex flex-col items-center justify-center flex-1 py-1 transition-all duration-100 ${
             currentTab === "report" ? "text-editorial-dark font-bold" : "text-editorial-dark/55"
           }`}

@@ -1,22 +1,127 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "motion/react";
-import { Search, SlidersHorizontal, Construction, Paintbrush, Lightbulb, MapPin, X, ThumbsUp, Plus } from "lucide-react";
+import { MapContainer, TileLayer, useMap, ZoomControl } from "react-leaflet";
+import { divIcon, marker, markerClusterGroup } from "leaflet";
+import "leaflet.markercluster";
+import { Search, SlidersHorizontal, MapPin, X, ThumbsUp, Plus } from "lucide-react";
 import { Issue, IssueCategory } from "../types";
 
-// Toronto center coordinate layout constraints for pin mapping
-const MIN_LAT = 43.6350;
-const MAX_LAT = 43.6700;
-const MIN_LNG = -79.4300;
-const MAX_LNG = -79.3600;
+const TORONTO_CENTER: [number, number] = [43.6532, -79.3832];
 
-const getPinPosition = (lat: number, lng: number) => {
-  const top = ((MAX_LAT - lat) / (MAX_LAT - MIN_LAT)) * 100;
-  const left = ((lng - MIN_LNG) / (MAX_LNG - MIN_LNG)) * 100;
+const getCoordinateKey = (issue: Issue) => `${issue.lat.toFixed(4)}:${issue.lng.toFixed(4)}`;
+
+const getStackOffset = (index: number, total: number) => {
+  if (total <= 1) {
+    return { lat: 0, lng: 0 };
+  }
+
+  const angle = (Math.PI * 2 * index) / total - Math.PI / 2;
+  const radius = total > 3 ? 0.00035 : 0.00025;
+
   return {
-    top: `${Math.max(15, Math.min(85, top))}%`,
-    left: `${Math.max(10, Math.min(90, left))}%`,
+    lat: Math.sin(angle) * radius,
+    lng: Math.cos(angle) * radius,
   };
 };
+
+const getCategoryMarkerClass = (category: IssueCategory) => {
+  if (category === "graffiti") {
+    return "civic-map-marker-graffiti";
+  }
+  if (category === "streetlights") {
+    return "civic-map-marker-streetlights";
+  }
+  return "civic-map-marker-potholes";
+};
+
+const getCategoryLabel = (category: IssueCategory) => {
+  if (category === "graffiti") {
+    return "G";
+  }
+  if (category === "streetlights") {
+    return "L";
+  }
+  return "P";
+};
+
+const createMarkerIcon = (issue: Issue, isSelected: boolean, isStacked: boolean) =>
+  divIcon({
+    className: "civic-map-marker-shell",
+    html: `<div class="civic-map-marker ${getCategoryMarkerClass(issue.category)} ${isSelected ? "civic-map-marker-selected" : ""}">
+      <span>${getCategoryLabel(issue.category)}</span>
+      ${isStacked ? '<b class="civic-map-marker-stack-dot"></b>' : ""}
+    </div>`,
+    iconSize: [34, 42],
+    iconAnchor: [17, 42],
+  });
+
+const createClusterIcon = (cluster: { getChildCount: () => number }) => {
+  const count = cluster.getChildCount();
+  return divIcon({
+    html: `<div class="civic-map-cluster"><span>${count}</span></div>`,
+    className: "civic-map-cluster-shell",
+    iconSize: [42, 42],
+    iconAnchor: [21, 21],
+  });
+};
+
+interface MarkerClusterLayerProps {
+  filteredIssues: Issue[];
+  coordinateGroups: Record<string, Issue[]>;
+  selectedIssueId: string | null;
+  onSelectIssue: (id: string) => void;
+}
+
+function MarkerClusterLayer({
+  filteredIssues,
+  coordinateGroups,
+  selectedIssueId,
+  onSelectIssue,
+}: MarkerClusterLayerProps) {
+  const map = useMap();
+  const clusterGroup = useMemo(
+    () =>
+      markerClusterGroup({
+        showCoverageOnHover: false,
+        spiderfyOnMaxZoom: true,
+        disableClusteringAtZoom: 17,
+        maxClusterRadius: 44,
+        iconCreateFunction: createClusterIcon,
+      }),
+    []
+  );
+
+  useEffect(() => {
+    map.addLayer(clusterGroup);
+    return () => {
+      map.removeLayer(clusterGroup);
+    };
+  }, [clusterGroup, map]);
+
+  useEffect(() => {
+    clusterGroup.clearLayers();
+
+    filteredIssues.forEach((issue) => {
+      const coordinateGroup = coordinateGroups[getCoordinateKey(issue)] || [issue];
+      const stackIndex = coordinateGroup.findIndex((groupedIssue) => groupedIssue.id === issue.id);
+      const offset = getStackOffset(stackIndex, coordinateGroup.length);
+      const isSelected = selectedIssueId === issue.id;
+      const issueMarker = marker([issue.lat + offset.lat, issue.lng + offset.lng], {
+        icon: createMarkerIcon(issue, isSelected, coordinateGroup.length > 1),
+        title: issue.title,
+      });
+
+      issueMarker.on("click", () => onSelectIssue(issue.id));
+      clusterGroup.addLayer(issueMarker);
+    });
+
+    return () => {
+      clusterGroup.clearLayers();
+    };
+  }, [clusterGroup, coordinateGroups, filteredIssues, onSelectIssue, selectedIssueId]);
+
+  return null;
+}
 
 interface MapProps {
   issues: Issue[];
@@ -29,16 +134,27 @@ export default function MapComponent({ issues, onVote, onNavigateToReport }: Map
   const [activeCategoryFilter, setActiveCategoryFilter] = useState<IssueCategory | null>(null);
   const [selectedIssueId, setSelectedIssueId] = useState<string | null>(null);
 
-  // Filter issues based on category and search text
-  const filteredIssues = issues.filter((issue) => {
-    const matchesCategory = activeCategoryFilter ? issue.category === activeCategoryFilter : true;
-    const matchesSearch = searchQuery
-      ? issue.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        issue.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        issue.description.toLowerCase().includes(searchQuery.toLowerCase())
-      : true;
-    return matchesCategory && matchesSearch;
-  });
+  const filteredIssues = useMemo(() => {
+    return issues.filter((issue) => {
+      const matchesCategory = activeCategoryFilter ? issue.category === activeCategoryFilter : true;
+      const matchesSearch = searchQuery
+        ? issue.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          issue.location.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          issue.description.toLowerCase().includes(searchQuery.toLowerCase())
+        : true;
+      return matchesCategory && matchesSearch;
+    });
+  }, [activeCategoryFilter, issues, searchQuery]);
+
+  const coordinateGroups = useMemo(() => {
+    return filteredIssues.reduce<Record<string, Issue[]>>((groups, issue) => {
+      const key = getCoordinateKey(issue);
+      return {
+        ...groups,
+        [key]: [...(groups[key] || []), issue],
+      };
+    }, {});
+  }, [filteredIssues]);
 
   const selectedIssue = issues.find((i) => i.id === selectedIssueId);
 
@@ -52,26 +168,34 @@ export default function MapComponent({ issues, onVote, onNavigateToReport }: Map
 
   return (
     <div id="map-container" className="relative w-full h-[calc(100vh-64px)] md:h-[calc(100vh-64px)] flex-1 overflow-hidden bg-editorial-bg">
-      
-      {/* Dynamic Map Canvas with Static Toronto Layout Backdrop */}
-      <div 
-        id="toronto-map-backdrop"
-        className="absolute inset-0 w-full h-full bg-cover bg-center transition-all duration-500 ease-out brightness-105 contrast-95 grayscale"
-        style={{
-          backgroundImage: `url('https://lh3.googleusercontent.com/aida-public/AB6AXuDpLWQ3wryY_7ikMF067QDYvJc-WWSOCVag73pHAe66xV2bnGPB85Ug3X7XGaOyF5Typ9cemluQ9JRdVrpOTNBl5Bnt0EYfYJXS6HShc5uQcZkuAjPo7xS0ei2Pc3wMhj_X7zSeZeRS8OM5iQ8CKHvwidMLkD2SiYqdORmTSkT3GpIrzHcwdClTJZ4i0oV0tsTx2-3X8tlxmZK1yy1lxfzFrmbyog6X94h92XHbsojdF7YdcXzxJXhVGROy42anYt0_tNfjh0XWklk')`,
-          filter: "saturate(1.05) contrast(1.02) sepia(0.08)",
-        }}
-        title="Toronto Civic Map Canvas"
-      />
+      <MapContainer
+        center={TORONTO_CENTER}
+        zoom={13}
+        minZoom={11}
+        maxZoom={18}
+        zoomControl={false}
+        className="absolute inset-0 z-0 h-full w-full grayscale-[0.15]"
+      >
+        <TileLayer
+          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+        />
+        <ZoomControl position="bottomleft" />
+
+        <MarkerClusterLayer
+          filteredIssues={filteredIssues}
+          coordinateGroups={coordinateGroups}
+          selectedIssueId={selectedIssueId}
+          onSelectIssue={setSelectedIssueId}
+        />
+      </MapContainer>
 
       {/* Floating Header Card containing Search / Filter Options */}
       <div id="map-floating-panel" className="absolute top-4 left-4 right-4 md:left-6 md:w-[420px] z-20 flex flex-col gap-2">
-        
-        {/* Sharp Input Field Container */}
         <div className="bg-editorial-bg border border-editorial-dark flex items-center px-4 py-2 select-none shadow-none">
           <Search className="text-editorial-dark/60 w-4 h-4 mr-3 shrink-0" />
           <input
-            id="map-places-search" 
+            id="map-places-search"
             type="text"
             className="flex-1 bg-transparent border-none text-editorial-dark placeholder-editorial-dark/40 outline-none text-xs uppercase tracking-wider py-1 focus:ring-0 focus:border-none focus:outline-none font-sans font-semibold"
             placeholder="Search catalogued locations..."
@@ -79,14 +203,14 @@ export default function MapComponent({ issues, onVote, onNavigateToReport }: Map
             onChange={(e) => setSearchQuery(e.target.value)}
           />
           {searchQuery && (
-            <button 
+            <button
               onClick={() => setSearchQuery("")}
               className="text-editorial-dark/65 hover:text-editorial-dark p-1 mr-1"
             >
               <X className="w-3.5 h-3.5" />
             </button>
           )}
-          <button 
+          <button
             id="map-filter-toggle"
             className="text-editorial-dark/70 hover:bg-editorial-dark/5 p-1.5 shrink-0"
           >
@@ -94,89 +218,46 @@ export default function MapComponent({ issues, onVote, onNavigateToReport }: Map
           </button>
         </div>
 
-        {/* Quick Horizontal Filter pills */}
         <div id="map-quick-filters" className="flex gap-1.5 overflow-x-auto py-1 no-scrollbar select-none">
           <button
             id="filter-potholes"
-            onClick={() => toggleCategoryFilter('potholes')}
+            onClick={() => toggleCategoryFilter("potholes")}
             className={`px-3 py-1 text-[9px] uppercase tracking-widest font-bold border flex items-center gap-1.5 transition-all duration-150 shrink-0 cursor-pointer ${
-              activeCategoryFilter === 'potholes'
+              activeCategoryFilter === "potholes"
                 ? "bg-editorial-dark border-editorial-dark text-editorial-bg"
                 : "bg-editorial-bg border-editorial-dark/40 text-editorial-dark/75 hover:bg-editorial-accent/30"
             }`}
           >
-            <span className={`w-1.5 h-1.5 ${activeCategoryFilter === 'potholes' ? "bg-editorial-bg" : "bg-[#ba1a1a]"}`} />
+            <span className={`w-1.5 h-1.5 ${activeCategoryFilter === "potholes" ? "bg-editorial-bg" : "bg-[#ba1a1a]"}`} />
             Potholes
           </button>
 
           <button
             id="filter-graffiti"
-            onClick={() => toggleCategoryFilter('graffiti')}
+            onClick={() => toggleCategoryFilter("graffiti")}
             className={`px-3 py-1 text-[9px] uppercase tracking-widest font-bold border flex items-center gap-1.5 transition-all duration-150 shrink-0 cursor-pointer ${
-              activeCategoryFilter === 'graffiti'
+              activeCategoryFilter === "graffiti"
                 ? "bg-editorial-dark border-editorial-dark text-editorial-bg"
                 : "bg-editorial-bg border-editorial-dark/40 text-editorial-dark/75 hover:bg-editorial-accent/30"
             }`}
           >
-            <span className={`w-1.5 h-1.5 ${activeCategoryFilter === 'graffiti' ? "bg-editorial-bg" : "bg-[#fd761a]"}`} />
+            <span className={`w-1.5 h-1.5 ${activeCategoryFilter === "graffiti" ? "bg-editorial-bg" : "bg-[#fd761a]"}`} />
             Graffiti
           </button>
 
           <button
             id="filter-streetlights"
-            onClick={() => toggleCategoryFilter('streetlights')}
+            onClick={() => toggleCategoryFilter("streetlights")}
             className={`px-3 py-1 text-[9px] uppercase tracking-widest font-bold border flex items-center gap-1.5 transition-all duration-150 shrink-0 cursor-pointer ${
-              activeCategoryFilter === 'streetlights'
+              activeCategoryFilter === "streetlights"
                 ? "bg-editorial-dark border-editorial-dark text-editorial-bg"
                 : "bg-editorial-bg border-editorial-dark/40 text-editorial-dark/75 hover:bg-editorial-accent/30"
             }`}
           >
-            <span className={`w-1.5 h-1.5 ${activeCategoryFilter === 'streetlights' ? "bg-editorial-bg" : "bg-[#00544c]"}`} />
+            <span className={`w-1.5 h-1.5 ${activeCategoryFilter === "streetlights" ? "bg-editorial-bg" : "bg-[#00544c]"}`} />
             Streetlights
           </button>
         </div>
-      </div>
-
-      {/* Render Dynamic Pins */}
-      <div id="map-markers-layer" className="absolute inset-0 z-10 pointer-events-none">
-        {filteredIssues.map((issue) => {
-          const { top, left } = getPinPosition(issue.lat, issue.lng);
-          const isSelected = selectedIssueId === issue.id;
-
-          // Icon based on category
-          let icon = <Construction className="w-3.5 h-3.5 text-editorial-bg" />;
-          let pinColorClass = "bg-[#ba1a1a]";
-          if (issue.category === "graffiti") {
-            icon = <Paintbrush className="w-3.5 h-3.5 text-editorial-bg" />;
-            pinColorClass = "bg-[#fd761a]";
-          } else if (issue.category === "streetlights") {
-            icon = <Lightbulb className="w-3.5 h-3.5 text-editorial-bg" />;
-            pinColorClass = "bg-[#00544c]";
-          }
-
-          return (
-            <button
-              key={issue.id}
-              id={`marker-pin-${issue.id}`}
-              onClick={() => setSelectedIssueId(issue.id)}
-              className="absolute pointer-events-auto transform -translate-x-1/2 -translate-y-full flex flex-col items-center group transition-all duration-150 ease-out cursor-pointer"
-              style={{ top, left, zIndex: isSelected ? 30 : 20 }}
-            >
-              <motion.div
-                className={`p-2 border border-editorial-dark flex items-center justify-center relative ${pinColorClass} rounded-none shadow-none`}
-                whileHover={{ scale: 1.1, y: -2 }}
-                animate={{ 
-                  scale: isSelected ? 1.2 : 1,
-                }}
-                transition={{ type: "spring", stiffness: 300, damping: 20 }}
-              >
-                {icon}
-                {/* Visual locator pointing downward */}
-                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-editorial-dark rotate-45 z-[-1]" />
-              </motion.div>
-            </button>
-          );
-        })}
       </div>
 
       {/* Slide-Up Bottom Sheet Card for selected issue details */}
@@ -190,9 +271,8 @@ export default function MapComponent({ issues, onVote, onNavigateToReport }: Map
             exit={{ y: "15%", opacity: 0 }}
             transition={{ duration: 0.25 }}
           >
-            {/* Grab Handle Header */}
-            <div 
-              id="sheet-drag-handle" 
+            <div
+              id="sheet-drag-handle"
               className="w-full flex justify-between items-center px-4 py-3 border-b border-editorial-dark bg-editorial-bg cursor-pointer"
               onClick={() => setSelectedIssueId(null)}
             >
@@ -201,7 +281,6 @@ export default function MapComponent({ issues, onVote, onNavigateToReport }: Map
             </div>
 
             <div className="overflow-y-auto px-5 pb-6 pt-4 flex-1 flex flex-col gap-4">
-              {/* Header section with category badge, title */}
               <div className="flex justify-between items-start gap-3">
                 <div className="space-y-1">
                   <div className="flex items-center gap-2">
@@ -218,7 +297,6 @@ export default function MapComponent({ issues, onVote, onNavigateToReport }: Map
                 </div>
               </div>
 
-              {/* Photo representation banner */}
               {selectedIssue.image && (
                 <div id="selected-issue-image" className="w-full h-44 bg-editorial-accent border border-editorial-dark overflow-hidden relative shrink-0 rounded-none">
                   <img
@@ -232,14 +310,13 @@ export default function MapComponent({ issues, onVote, onNavigateToReport }: Map
                   </div>
                   <div className="absolute top-2 left-2 bg-editorial-bg border border-editorial-dark text-[8px] font-bold text-editorial-dark uppercase tracking-widest font-sans px-2 py-0.5 flex items-center gap-1.5">
                     <span className={`w-1.5 h-1.5 ${
-                      selectedIssue.category === 'potholes' ? "bg-[#ba1a1a]" : selectedIssue.category === 'graffiti' ? "bg-[#fd761a]" : "bg-[#00544c]"
+                      selectedIssue.category === "potholes" ? "bg-[#ba1a1a]" : selectedIssue.category === "graffiti" ? "bg-[#fd761a]" : "bg-[#00544c]"
                     }`} />
                     {selectedIssue.category}
                   </div>
                 </div>
               )}
 
-              {/* Description body text */}
               <div id="selected-issue-description" className="space-y-1.5 border-t border-editorial-dark/10 pt-3">
                 <h3 className="text-[9px] font-sans font-bold text-editorial-dark/40 uppercase tracking-widest">General Dispatches</h3>
                 <p className="text-xs text-editorial-dark/85 leading-relaxed font-sans">
@@ -248,7 +325,6 @@ export default function MapComponent({ issues, onVote, onNavigateToReport }: Map
                 <div className="pt-2 text-[9px] uppercase tracking-wider font-bold text-editorial-dark/50">Ward: {selectedIssue.ward}</div>
               </div>
 
-              {/* Action Button: 'Me Too' endorsement/voting */}
               <button
                 id="vote-endorse-btn"
                 onClick={() => onVote(selectedIssue.id)}
@@ -268,7 +344,6 @@ export default function MapComponent({ issues, onVote, onNavigateToReport }: Map
         )}
       </AnimatePresence>
 
-      {/* Floating Action Button to Add/Report a new issue */}
       <motion.button
         id="map-floating-add-btn"
         onClick={onNavigateToReport}

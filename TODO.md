@@ -1,19 +1,23 @@
 # TODO
 
-## Feature Roadmap
+## Main TODO
 
-- [ ] LocalStorage persistence for user data during development
-- [ ] Report creation and editing flow
-- [ ] Saved reports list/history
-- [ ] Map/report location improvements
 - [ ] Camera/photo issue capture
 - [ ] AI analysis fallback and OpenAI integration polish
 - [ ] Auth/profile behavior for development mode
-- [ ] 311 service workflow for connecting reports to municipal support channels
-- [ ] Toronto 311 hotline/service request integration
-- [ ] Oakville service hotline/service request integration
-- [ ] Reports per ward statistics
-- [ ] Department-level statistics
+- [ ] Stats collection and page
 - [ ] Production persistence decision
 - [ ] Deployment readiness
 - [ ] Testing and verification
+
+## Draft Completed (move a task here once you have a draft)
+
+- [x] Map/report location improvements
+
+## Tested (Tested by me only)
+
+- [x] LocalStorage persistence for user data during development
+- [x] Report creation and editing flow
+- [x] Saved reports list/history
+
+## Verified Complete

@@ -44,3 +44,101 @@ body {
   border-radius: 0px; /* Sharp corners represent the premium print style */
 }
 
+.leaflet-container {
+  background: var(--color-editorial-bg);
+  font-family: var(--font-sans);
+}
+
+.leaflet-control-zoom a,
+.leaflet-control-attribution {
+  border-radius: 0 !important;
+}
+
+.civic-map-marker-shell {
+  background: transparent;
+  border: 0;
+}
+
+.civic-map-marker {
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--color-editorial-dark);
+  color: var(--color-editorial-bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0;
+  box-shadow: 0 2px 0 rgba(18, 18, 18, 0.25);
+}
+
+.civic-map-marker::after {
+  content: "";
+  width: 9px;
+  height: 9px;
+  background: var(--color-editorial-dark);
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  transform: translateX(-50%) rotate(45deg);
+  z-index: -1;
+}
+
+.civic-map-marker-selected {
+  outline: 3px solid rgba(249, 247, 242, 0.95);
+  transform: translateY(-3px) scale(1.08);
+}
+
+.civic-map-marker-potholes {
+  background: #ba1a1a;
+}
+
+.civic-map-marker-graffiti {
+  background: #fd761a;
+}
+
+.civic-map-marker-streetlights {
+  background: #00544c;
+}
+
+.civic-map-marker-stack-dot {
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--color-editorial-dark);
+  background: var(--color-editorial-bg);
+  position: absolute;
+  right: -4px;
+  top: -4px;
+}
+
+.civic-map-cluster-shell {
+  background: transparent;
+  border: 0;
+}
+
+.civic-map-cluster {
+  width: 42px;
+  height: 42px;
+  border: 2px solid var(--color-editorial-dark);
+  background: var(--color-editorial-bg);
+  color: var(--color-editorial-dark);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 900;
+  box-shadow: 0 2px 0 rgba(18, 18, 18, 0.25);
+}
+
+.civic-map-cluster span {
+  border: 1px solid var(--color-editorial-dark);
+  min-width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+}
+
