@@ -5,7 +5,7 @@
 
 1. Install dependencies:
    `bun install`
-2. Set the `OPENAI_API_KEY` in [.env.local](.env.local) to your OpenAI API key
+2. Set `API_KEY` and `APP_ID` in [.env.local](.env.local) for Qianfan live vision analysis. The app uses `https://qianfan.baidubce.com/v2` with model `qwen3.5-397b-a17b`.
 3. Run the app:
    `bun run dev`
 
@@ -18,11 +18,19 @@ During local development, CivicPulse stores user/session data and report data in
 
 To reset local development data from the app, open the Profile tab and click `Reset Local Development Data`. This clears the local user session and restores the seed report list.
 
+Captured and uploaded report photos are saved by the local server under `data/<uid>/`, where the UID is derived from the signed-in user email or `anonymous_user` during unsigned development use. Saved reports store the returned `/data/<uid>/<filename>` image URL.
+
 You can also reset manually from browser DevTools by clearing the app's Local Storage entries and refreshing the page.
 
 ## Report Creation And Editing
 
 Create a report from the Report tab, Map floating action button, or Statistics call-to-action. Submitted reports are saved to browser `localStorage` and appear in the Map, Statistics, and Profile views.
+
+The Snap Scene flow opens the browser camera when permission is granted. Shutter captures and uploaded image files are persisted through `/api/photos` before the report form uses them.
+
+Photo analysis uses the OpenAI-compatible Qianfan chat completions API when `API_KEY` and `APP_ID` are configured. Until those are provided, `/api/analyze-issue` returns the local simulated analysis fallback.
+
+Issue categories and the vision-analysis prompt live in `src/issueConfig.ts`. Edit that file to adjust category ids, labels, map labels, stats labels, or the prompt text used by `/api/analyze-issue`.
 
 To edit a locally created report, open the Profile tab and click `Edit Report` on one of your recent dispatch cards. The Report form reopens with the existing title, category, description, location, and image pre-filled. Saving updates the existing local report instead of creating a duplicate.
 

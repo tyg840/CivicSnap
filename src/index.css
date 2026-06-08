@@ -103,6 +103,10 @@ body {
   background: #00544c;
 }
 
+.civic-map-marker-other {
+  background: #5b4b8a;
+}
+
 .civic-map-marker-stack-dot {
   width: 7px;
   height: 7px;

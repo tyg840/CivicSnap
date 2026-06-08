@@ -1,7 +1,9 @@
-import React, { useState, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { X, Settings, MapPin, Zap, ZapOff, Image, Aperture } from "lucide-react";
+import { saveCapturedPhoto } from "../photoStorage";
 
 interface CameraViewProps {
+  uid: string;
   onCapture: (imageData: string, fallbackType: string) => void;
   onClose: () => void;
 }
@@ -14,9 +16,13 @@ interface IssueScenario {
   fallbackType: string;
 }
 
-export default function CameraViewComponent({ onCapture, onClose }: CameraViewProps) {
+export default function CameraViewComponent({ uid, onCapture, onClose }: CameraViewProps) {
   const [flashOn, setFlashOn] = useState(false);
   const [activeScenarioIdx, setActiveScenarioIdx] = useState(0);
+  const [cameraStatus, setCameraStatus] = useState<"starting" | "ready" | "unavailable" | "saving">("starting");
+  const [cameraError, setCameraError] = useState("");
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Carousel of simulated camera scenes that can be focused and snapped
@@ -46,6 +52,61 @@ export default function CameraViewComponent({ onCapture, onClose }: CameraViewPr
 
   const currentScenario = scenarios[activeScenarioIdx];
 
+  useEffect(() => {
+    let isMounted = true;
+
+    const startCamera = async () => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        setCameraStatus("unavailable");
+        setCameraError("Camera access is unavailable in this browser.");
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { ideal: "environment" } },
+          audio: false,
+        });
+
+        if (!isMounted) {
+          stream.getTracks().forEach((track) => track.stop());
+          return;
+        }
+
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          await videoRef.current.play();
+        }
+        setCameraStatus("ready");
+        setCameraError("");
+      } catch {
+        setCameraStatus("unavailable");
+        setCameraError("Camera permission was denied or no camera was found.");
+      }
+    };
+
+    startCamera();
+
+    return () => {
+      isMounted = false;
+      streamRef.current?.getTracks().forEach((track) => track.stop());
+    };
+  }, []);
+
+  const persistPhoto = async (imageData: string, fallbackType: string) => {
+    setCameraStatus("saving");
+    setCameraError("");
+
+    try {
+      const savedPhoto = await saveCapturedPhoto(imageData, uid);
+      onCapture(savedPhoto.imageUrl, fallbackType);
+    } catch {
+      setCameraStatus(streamRef.current ? "ready" : "unavailable");
+      setCameraError("Photo could not be saved to the local data folder.");
+    }
+  };
+
   const triggerGalleryLookup = () => {
     fileInputRef.current?.click();
   };
@@ -56,8 +117,7 @@ export default function CameraViewComponent({ onCapture, onClose }: CameraViewPr
       const reader = new FileReader();
       reader.onloadend = () => {
         if (typeof reader.result === "string") {
-          // Pass base64 back as captured image!
-          onCapture(reader.result, "general_upload");
+          persistPhoto(reader.result, "general_upload");
         }
       };
       reader.readAsDataURL(file);
@@ -65,17 +125,44 @@ export default function CameraViewComponent({ onCapture, onClose }: CameraViewPr
   };
 
   const captureShutterSnap = () => {
-    // Standard simulation: load the image URL directly as the base64 or source image back
-    onCapture(currentScenario.image, currentScenario.fallbackType);
+    const video = videoRef.current;
+
+    if (!video || cameraStatus !== "ready" || video.videoWidth === 0 || video.videoHeight === 0) {
+      setCameraError("Camera is not ready yet. Upload a photo or try again.");
+      return;
+    }
+
+    const canvas = document.createElement("canvas");
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      setCameraError("Unable to capture this camera frame.");
+      return;
+    }
+
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    persistPhoto(canvas.toDataURL("image/jpeg", 0.9), currentScenario.fallbackType);
   };
 
   return (
     <div id="camera-frame-container" className="fixed inset-0 bg-editorial-bg z-50 overflow-hidden flex flex-col justify-between select-none">
       
-      {/* BACKGROUND SIMULATOR FEED */}
-      <div 
+      <video
+        id="camera-feed-video"
+        ref={videoRef}
+        playsInline
+        muted
+        className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-300 brightness-90 saturate-75 contrast-105 ${
+          cameraStatus === "ready" || cameraStatus === "saving" ? "opacity-100" : "opacity-0"
+        }`}
+      />
+      <div
         id="camera-feed-bg"
-        className="absolute inset-0 w-full h-full bg-cover bg-center transition-all duration-300 transform scale-100 ease-out brightness-90 saturate-75 contrast-105"
+        className={`absolute inset-0 w-full h-full bg-cover bg-center transition-opacity duration-300 brightness-90 saturate-75 contrast-105 ${
+          cameraStatus === "ready" || cameraStatus === "saving" ? "opacity-0" : "opacity-100"
+        }`}
         style={{ backgroundImage: `url('${currentScenario.image}')` }}
       />
 
@@ -164,6 +251,7 @@ export default function CameraViewComponent({ onCapture, onClose }: CameraViewPr
           <button 
             id="camera-shutter-snap"
             onClick={captureShutterSnap}
+            disabled={cameraStatus === "starting" || cameraStatus === "saving"}
             className="w-16 h-16 bg-transparent rounded-none border-2 border-editorial-dark flex items-center justify-center p-1.5 cursor-pointer transition-transform duration-100 ease-out active:scale-92"
             title="Press to snap municipal report photo"
           >
@@ -186,8 +274,13 @@ export default function CameraViewComponent({ onCapture, onClose }: CameraViewPr
 
         <div className="text-[8px] font-bold text-editorial-dark/60 tracking-widest uppercase flex items-center gap-1.5 pt-1.5 selection:bg-transparent">
           <Aperture className="w-3.5 h-3.5 animate-spin-slow" />
-          <span>Viewfield Emulator</span>
+          <span>{cameraStatus === "saving" ? "Saving Local Photo" : cameraStatus === "ready" ? `UID ${uid}` : "Camera Standby"}</span>
         </div>
+        {cameraError && (
+          <div className="max-w-sm bg-white border border-editorial-dark px-3 py-2 text-[9px] font-bold uppercase tracking-widest text-editorial-dark text-center">
+            {cameraError}
+          </div>
+        )}
       </div>
     </div>
   );

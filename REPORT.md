@@ -1,5 +1,62 @@
 # Development Report
 
+## Camera/photo issue capture
+
+Completed the draft implementation for local camera capture and photo file persistence.
+
+### What changed
+
+- Added `/api/photos` in `server.ts` to save PNG, JPEG, WEBP, and GIF data URLs into `data/<uid>/`.
+- Exposed the local `data` folder at `/data` so saved report images can be previewed and reused by reports.
+- Added `src/photoStorage.ts` with client helpers for deriving a development UID and uploading captured photos.
+- Updated `src/components/CameraView.tsx` to use browser camera capture, save shutter frames to the backend, and keep file upload as a fallback path.
+- Updated `src/App.tsx` and `src/components/Report.tsx` so report previews and submitted reports use the stored image URL returned by the server.
+- Updated `/api/analyze-issue` so locally stored `/data/...` images are read back into data URLs before OpenAI analysis.
+
+### Checks
+
+- Passed: `bun run lint`
+- Passed: `bun run build`
+- Passed: `/api/analyze-issue` live smoke test returned `category: "other"` with `isSimulated: false` for an unclear generated image.
+- Passed: `/api/analyze-issue` smoke test returned simulated report JSON while `API_KEY` and `APP_ID` are unset.
+- Passed: `/api/photos` smoke test saved a PNG under `/data/smoke_test/...` and served it back with HTTP 200.
+
+## Qianfan vision report generation
+
+Completed the draft wiring for live LLM report generation using the `deepseek.py` client pattern.
+
+### What changed
+
+- Updated `/api/analyze-issue` to use the OpenAI-compatible Qianfan base URL `https://qianfan.baidubce.com/v2`.
+- Set the live vision model to `qwen3.5-397b-a17b`.
+- Added the Qianfan `appid` default header through `APP_ID`, with `API_KEY` used as the client API key.
+- Switched live image analysis from Responses API calls to chat completions with text and image content.
+- Kept the existing simulated fallback active until `API_KEY` and `APP_ID` are configured.
+- Updated `.env.example` and `README.md` with the new credential names and model details.
+
+### Checks
+
+- Passed: `bun run lint`
+- Passed: `bun run build`
+
+## Configurable issue categories and prompt
+
+Completed the draft cleanup for AI-owned classification and configurable report generation prompts.
+
+### What changed
+
+- Added `src/issueConfig.ts` as the standalone category and prompt configuration file.
+- Added the `other` issue category and wired it through report creation, maps, profile cards, and statistics.
+- Updated `/api/analyze-issue` so the Qianfan prompts come from `src/issueConfig.ts`.
+- Removed user-controlled category selection from the report form; the field is now a read-only AI classification result.
+- Split `Open Camera` and `Upload From Storage` into separate actions so file upload no longer opens the camera UI.
+- Updated direct report file uploads to save images through `/api/photos` before analysis.
+
+### Checks
+
+- Passed: `bun run lint`
+- Passed: `bun run build`
+
 ## LocalStorage persistence for user data during development
 
 Completed the LocalStorage persistence task.

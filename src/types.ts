@@ -1,4 +1,6 @@
-export type IssueCategory = 'potholes' | 'graffiti' | 'streetlights';
+import { IssueCategory } from "./issueConfig";
+
+export type { IssueCategory };
 
 export type IssueHistoryAction = 'Created' | 'Edited';
 

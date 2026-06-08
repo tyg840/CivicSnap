@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { TrendingUp, ArrowDown, Construction, Paintbrush, Lightbulb, PieChart, PlusCircle, BarChart } from "lucide-react";
 import { Issue } from "../types";
+import { getIssueCategory } from "../issueConfig";
 
 interface StatisticsProps {
   issues: Issue[];
@@ -44,13 +45,15 @@ export default function StatisticsComponent({ issues, onNavigateToReport }: Stat
       potholes: 450 + issues.filter((i) => i.category === "potholes").length,
       graffiti: 300 + issues.filter((i) => i.category === "graffiti").length,
       streetlights: 250 + issues.filter((i) => i.category === "streetlights").length,
+      other: issues.filter((i) => i.category === "other").length,
     };
 
-    const totalCategoryCount = categoryBaselines.potholes + categoryBaselines.graffiti + categoryBaselines.streetlights;
+    const totalCategoryCount = categoryBaselines.potholes + categoryBaselines.graffiti + categoryBaselines.streetlights + categoryBaselines.other;
     const percentages = {
       potholes: totalCategoryCount ? Math.round((categoryBaselines.potholes / totalCategoryCount) * 100) : 45,
       graffiti: totalCategoryCount ? Math.round((categoryBaselines.graffiti / totalCategoryCount) * 100) : 30,
       streetlights: totalCategoryCount ? Math.round((categoryBaselines.streetlights / totalCategoryCount) * 100) : 25,
+      other: totalCategoryCount ? Math.round((categoryBaselines.other / totalCategoryCount) * 100) : 0,
     };
 
     return {
@@ -224,17 +227,22 @@ export default function StatisticsComponent({ issues, onNavigateToReport }: Stat
                 <li className="flex items-center gap-2.5 text-[11px] text-editorial-dark font-medium">
                   <span className="w-2.5 h-2.5 bg-[#121212] border border-editorial-dark shrink-0" />
                   <Construction className="w-3.5 h-3.5 text-editorial-dark/50" />
-                  <span>Road Infrastructure ({computedStats.percentages.potholes}%)</span>
+                  <span>{getIssueCategory("potholes").statsLabel} ({computedStats.percentages.potholes}%)</span>
                 </li>
                 <li className="flex items-center gap-2.5 text-[11px] text-editorial-dark font-medium">
                   <span className="w-2.5 h-2.5 bg-[#6B665E] border border-editorial-dark shrink-0" />
                   <Paintbrush className="w-3.5 h-3.5 text-editorial-dark/50" />
-                  <span>Sanitation / Graffiti ({computedStats.percentages.graffiti}%)</span>
+                  <span>{getIssueCategory("graffiti").statsLabel} ({computedStats.percentages.graffiti}%)</span>
                 </li>
                 <li className="flex items-center gap-2.5 text-[11px] text-editorial-dark font-medium">
                   <span className="w-2.5 h-2.5 bg-[#C7C2B4] border border-editorial-dark shrink-0" />
                   <Lightbulb className="w-3.5 h-3.5 text-editorial-dark/50" />
-                  <span>Utilities & Streetlights ({computedStats.percentages.streetlights}%)</span>
+                  <span>{getIssueCategory("streetlights").statsLabel} ({computedStats.percentages.streetlights}%)</span>
+                </li>
+                <li className="flex items-center gap-2.5 text-[11px] text-editorial-dark font-medium">
+                  <span className="w-2.5 h-2.5 bg-[#5b4b8a] border border-editorial-dark shrink-0" />
+                  <PieChart className="w-3.5 h-3.5 text-editorial-dark/50" />
+                  <span>{getIssueCategory("other").statsLabel} ({computedStats.percentages.other}%)</span>
                 </li>
               </ul>
             </div>
@@ -247,7 +255,8 @@ export default function StatisticsComponent({ issues, onNavigateToReport }: Stat
                   background: `conic-gradient(
                     #121212 0% ${computedStats.percentages.potholes}%, 
                     #6B665E ${computedStats.percentages.potholes}% ${computedStats.percentages.potholes + computedStats.percentages.graffiti}%, 
-                    #C7C2B4 ${computedStats.percentages.potholes + computedStats.percentages.graffiti}% 100%
+                    #C7C2B4 ${computedStats.percentages.potholes + computedStats.percentages.graffiti}% ${computedStats.percentages.potholes + computedStats.percentages.graffiti + computedStats.percentages.streetlights}%,
+                    #5b4b8a ${computedStats.percentages.potholes + computedStats.percentages.graffiti + computedStats.percentages.streetlights}% 100%
                   )`
                 }}
               />

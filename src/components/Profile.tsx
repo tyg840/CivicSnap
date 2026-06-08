@@ -1,6 +1,20 @@
 import { useMemo, useState } from "react";
 import { Edit2, MapPin, Settings, Bell, Lock, CircleUser, LogOut, ChevronRight, Trash2, History } from "lucide-react";
 import { User, Issue } from "../types";
+import { getIssueCategory } from "../issueConfig";
+
+const getCategoryDotClass = (category: Issue["category"]) => {
+  if (category === "graffiti") {
+    return "bg-[#fd761a]";
+  }
+  if (category === "streetlights") {
+    return "bg-[#00544c]";
+  }
+  if (category === "other") {
+    return "bg-[#5b4b8a]";
+  }
+  return "bg-[#ba1a1a]";
+};
 
 interface ProfileProps {
   user: User | null;
@@ -145,7 +159,7 @@ export default function ProfileComponent({
             <CircleUser className="w-8 h-8 text-editorial-dark/40 stroke-[1.5]" />
             <div className="text-xs uppercase tracking-widest font-bold text-editorial-dark/60">No local records found</div>
             <p className="text-xs text-editorial-dark/70 font-serif max-w-sm">
-              Any pothole, graffiti, or streetlight reports you file from the Report column will automatically index here.
+              Any civic issue reports you file from the Report column will automatically index here.
             </p>
           </div>
         ) : reportView === "recent" ? (
@@ -165,10 +179,8 @@ export default function ProfileComponent({
                 <div>
                   <h3 className="text-base font-serif font-bold text-editorial-dark mt-1">{issue.title}</h3>
                   <p className="text-[10px] text-editorial-dark/60 font-sans mt-1 uppercase tracking-wide flex items-center gap-1">
-                    <span className={`w-1.5 h-1.5 ${
-                      issue.category === 'potholes' ? "bg-[#ba1a1a]" : issue.category === 'graffiti' ? "bg-[#fd761a]" : "bg-[#00544c]"
-                    }`} />
-                    {issue.category} &bull; {issue.location}
+                    <span className={`w-1.5 h-1.5 ${getCategoryDotClass(issue.category)}`} />
+                    {getIssueCategory(issue.category).label} &bull; {issue.location}
                   </p>
                   <p className="text-xs text-editorial-dark/80 mt-2 line-clamp-2 leading-relaxed">
                     {issue.description || "No general description provided."}

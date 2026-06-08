@@ -5,6 +5,7 @@ import { divIcon, marker, markerClusterGroup } from "leaflet";
 import "leaflet.markercluster";
 import { Search, SlidersHorizontal, MapPin, X, ThumbsUp, Plus } from "lucide-react";
 import { Issue, IssueCategory } from "../types";
+import { ISSUE_CATEGORIES, getIssueCategory } from "../issueConfig";
 
 const TORONTO_CENTER: [number, number] = [43.6532, -79.3832];
 const MAP_DEFAULT_ZOOM = 15;
@@ -35,17 +36,27 @@ const getCategoryMarkerClass = (category: IssueCategory) => {
   if (category === "streetlights") {
     return "civic-map-marker-streetlights";
   }
+  if (category === "other") {
+    return "civic-map-marker-other";
+  }
   return "civic-map-marker-potholes";
 };
 
 const getCategoryLabel = (category: IssueCategory) => {
+  return getIssueCategory(category).mapLabel;
+};
+
+const getCategoryDotClass = (category: IssueCategory) => {
   if (category === "graffiti") {
-    return "G";
+    return "bg-[#fd761a]";
   }
   if (category === "streetlights") {
-    return "L";
+    return "bg-[#00544c]";
   }
-  return "P";
+  if (category === "other") {
+    return "bg-[#5b4b8a]";
+  }
+  return "bg-[#ba1a1a]";
 };
 
 const createMarkerIcon = (issue: Issue, isSelected: boolean, isStacked: boolean) =>
@@ -226,44 +237,21 @@ export default function MapComponent({ issues, onVote, onNavigateToReport }: Map
         </div>
 
         <div id="map-quick-filters" className="flex gap-1.5 overflow-x-auto py-1 no-scrollbar select-none">
-          <button
-            id="filter-potholes"
-            onClick={() => toggleCategoryFilter("potholes")}
-            className={`px-3 py-1 text-[9px] uppercase tracking-widest font-bold border flex items-center gap-1.5 transition-all duration-150 shrink-0 cursor-pointer ${
-              activeCategoryFilter === "potholes"
-                ? "bg-editorial-dark border-editorial-dark text-editorial-bg"
-                : "bg-editorial-bg border-editorial-dark/40 text-editorial-dark/75 hover:bg-editorial-accent/30"
-            }`}
-          >
-            <span className={`w-1.5 h-1.5 ${activeCategoryFilter === "potholes" ? "bg-editorial-bg" : "bg-[#ba1a1a]"}`} />
-            Potholes
-          </button>
-
-          <button
-            id="filter-graffiti"
-            onClick={() => toggleCategoryFilter("graffiti")}
-            className={`px-3 py-1 text-[9px] uppercase tracking-widest font-bold border flex items-center gap-1.5 transition-all duration-150 shrink-0 cursor-pointer ${
-              activeCategoryFilter === "graffiti"
-                ? "bg-editorial-dark border-editorial-dark text-editorial-bg"
-                : "bg-editorial-bg border-editorial-dark/40 text-editorial-dark/75 hover:bg-editorial-accent/30"
-            }`}
-          >
-            <span className={`w-1.5 h-1.5 ${activeCategoryFilter === "graffiti" ? "bg-editorial-bg" : "bg-[#fd761a]"}`} />
-            Graffiti
-          </button>
-
-          <button
-            id="filter-streetlights"
-            onClick={() => toggleCategoryFilter("streetlights")}
-            className={`px-3 py-1 text-[9px] uppercase tracking-widest font-bold border flex items-center gap-1.5 transition-all duration-150 shrink-0 cursor-pointer ${
-              activeCategoryFilter === "streetlights"
-                ? "bg-editorial-dark border-editorial-dark text-editorial-bg"
-                : "bg-editorial-bg border-editorial-dark/40 text-editorial-dark/75 hover:bg-editorial-accent/30"
-            }`}
-          >
-            <span className={`w-1.5 h-1.5 ${activeCategoryFilter === "streetlights" ? "bg-editorial-bg" : "bg-[#00544c]"}`} />
-            Streetlights
-          </button>
+          {ISSUE_CATEGORIES.map((issueCategory) => (
+            <button
+              key={issueCategory.id}
+              id={`filter-${issueCategory.id}`}
+              onClick={() => toggleCategoryFilter(issueCategory.id)}
+              className={`px-3 py-1 text-[9px] uppercase tracking-widest font-bold border flex items-center gap-1.5 transition-all duration-150 shrink-0 cursor-pointer ${
+                activeCategoryFilter === issueCategory.id
+                  ? "bg-editorial-dark border-editorial-dark text-editorial-bg"
+                  : "bg-editorial-bg border-editorial-dark/40 text-editorial-dark/75 hover:bg-editorial-accent/30"
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 ${activeCategoryFilter === issueCategory.id ? "bg-editorial-bg" : getCategoryDotClass(issueCategory.id)}`} />
+              {issueCategory.mapLabel}
+            </button>
+          ))}
         </div>
       </div>
 
@@ -316,10 +304,8 @@ export default function MapComponent({ issues, onVote, onNavigateToReport }: Map
                     {selectedIssue.date}
                   </div>
                   <div className="absolute top-2 left-2 bg-editorial-bg border border-editorial-dark text-[8px] font-bold text-editorial-dark uppercase tracking-widest font-sans px-2 py-0.5 flex items-center gap-1.5">
-                    <span className={`w-1.5 h-1.5 ${
-                      selectedIssue.category === "potholes" ? "bg-[#ba1a1a]" : selectedIssue.category === "graffiti" ? "bg-[#fd761a]" : "bg-[#00544c]"
-                    }`} />
-                    {selectedIssue.category}
+                    <span className={`w-1.5 h-1.5 ${getCategoryDotClass(selectedIssue.category)}`} />
+                    {getIssueCategory(selectedIssue.category).label}
                   </div>
                 </div>
               )}

@@ -18,6 +18,7 @@ import {
 } from "./storage";
 import { findKnownReportLocation } from "./locations";
 import { resolveReportLocation } from "./geocoding";
+import { getUserPhotoUid } from "./photoStorage";
 
 const createHistoryEntry = (action: "Created" | "Edited", summary: string) => ({
   id: `history_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -430,6 +431,7 @@ export default function App() {
             editingIssue={editingIssue}
             onCancelEdit={handleCancelReportEdit}
             onOpenSimulator={() => setIsCameraOpen(true)}
+            photoUid={getUserPhotoUid(user)}
             capturedImage={capturedImage}
             capturedFallbackType={capturedFallbackType}
             resetCapturedImage={() => {
@@ -524,6 +526,7 @@ export default function App() {
       {/* FULLSCREEN CAMERA VIEWFINDER OVERLAY SENSORS */}
       {isCameraOpen && (
         <CameraViewComponent
+          uid={getUserPhotoUid(user)}
           onCapture={handleCameraCapture}
           onClose={() => setIsCameraOpen(false)}
         />

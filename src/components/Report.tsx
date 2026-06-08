@@ -1,7 +1,9 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Camera, Edit, MapPin, Upload, ArrowRight, AlertCircle, Trash2, Sparkles, CheckCircle2, LocateFixed } from "lucide-react";
 import { IssueCategory, Issue } from "../types";
+import { ISSUE_CATEGORIES, getIssueCategory, normalizeIssueCategory } from "../issueConfig";
 import { MOCK_LOCATIONS, TORONTO_FALLBACK_LOCATION, resolveMockLocation } from "../locations";
+import { saveCapturedPhoto } from "../photoStorage";
 import {
   getLocationSuggestion,
   resolveBrowserLocation,
@@ -15,6 +17,7 @@ interface ReportProps {
   editingIssue: Issue | null;
   onCancelEdit: () => void;
   onOpenSimulator: () => void;
+  photoUid: string;
   capturedImage: string | null;
   capturedFallbackType: string | null;
   resetCapturedImage: () => void;
@@ -26,6 +29,7 @@ export default function ReportComponent({
   editingIssue,
   onCancelEdit,
   onOpenSimulator,
+  photoUid,
   capturedImage,
   capturedFallbackType,
   resetCapturedImage,
@@ -33,7 +37,7 @@ export default function ReportComponent({
   const isEditing = Boolean(editingIssue);
   const [reportMode, setReportMode] = useState<"snap" | "manual">("snap");
   const [title, setTitle] = useState("");
-  const [category, setCategory] = useState<IssueCategory | "">("");
+  const [category, setCategory] = useState<IssueCategory>("other");
   const [description, setDescription] = useState("");
   const [locationAddress, setLocationAddress] = useState(MOCK_LOCATIONS[0].address);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
@@ -53,7 +57,7 @@ export default function ReportComponent({
 
   const resetForm = () => {
     setTitle("");
-    setCategory("");
+    setCategory("other");
     setDescription("");
     setLocationAddress(MOCK_LOCATIONS[0].address);
     setImagePreview(null);
@@ -67,7 +71,7 @@ export default function ReportComponent({
   };
 
   // Trigger real backend OpenAI analysis via /api/analyze-issue
-  const analyzePhotoViaOpenAI = async (imageBase64: string, fallback: string) => {
+  const analyzePhotoViaOpenAI = async (imageSource: string, fallback: string) => {
     setIsAnalyzing(true);
     setErrorMsg("");
     setAiAnalysisMessage("Indexing photo with Gazette Parse-AI...");
@@ -77,7 +81,7 @@ export default function ReportComponent({
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          imageData: imageBase64,
+          imageData: imageSource,
           fallbackType: fallback,
         }),
       });
@@ -90,12 +94,7 @@ export default function ReportComponent({
 
       setTitle(parsed.title || "");
       
-      // Map category back safely
-      if (parsed.category === "potholes" || parsed.category === "graffiti" || parsed.category === "streetlights") {
-        setCategory(parsed.category as IssueCategory);
-      } else {
-        setCategory("potholes"); // Default fallback match
-      }
+      setCategory(normalizeIssueCategory(parsed.category));
 
       setDescription(parsed.description || "");
       setAiAnalysisMessage(
@@ -121,10 +120,15 @@ export default function ReportComponent({
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => {
+      reader.onloadend = async () => {
         const resultBase64 = reader.result as string;
-        setImagePreview(resultBase64);
-        analyzePhotoViaOpenAI(resultBase64, "uploaded_file");
+        try {
+          const savedPhoto = await saveCapturedPhoto(resultBase64, photoUid);
+          setImagePreview(savedPhoto.imageUrl);
+          analyzePhotoViaOpenAI(savedPhoto.imageUrl, "uploaded_file");
+        } catch {
+          setErrorMsg("Photo could not be saved to the local data folder.");
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -243,11 +247,6 @@ export default function ReportComponent({
       setErrorMsg("Title is required to log a municipal concern.");
       return;
     }
-    if (!category) {
-      setErrorMsg("Category selection is required.");
-      return;
-    }
-
     const resolvedLocation = validatedLocation?.address === locationAddress ? validatedLocation : await validateLocation();
     if (!resolvedLocation) {
       return;
@@ -260,7 +259,7 @@ export default function ReportComponent({
       const reportData = {
         title,
         description,
-        category: category as IssueCategory,
+        category,
         location: resolvedLocation.address,
         lat: resolvedLocation.lat,
         lng: resolvedLocation.lng,
@@ -414,19 +413,27 @@ export default function ReportComponent({
               <label className="text-[10px] font-sans uppercase font-bold tracking-[0.2em] opacity-40">Verification Photo</label>
               
               {!imagePreview ? (
-                <div 
+                <div
                   id="drag-drop-frame"
-                  className="w-full border-2 border-dashed border-editorial-dark bg-white p-8 flex flex-col items-center justify-center gap-3 transition-colors hover:bg-editorial-subtle cursor-pointer rounded-none"
-                  onClick={onOpenSimulator}
+                  className="w-full border-2 border-dashed border-editorial-dark bg-white p-8 flex flex-col items-center justify-center gap-3 transition-colors rounded-none"
                 >
                   <div className="w-10 h-10 border border-editorial-dark bg-editorial-bg text-editorial-dark flex items-center justify-center">
                     <Camera className="w-4 h-4 text-editorial-dark" />
                   </div>
                   
                   <div className="text-center space-y-1">
-                    <span className="text-xs uppercase tracking-widest font-bold text-editorial-dark block">Open Scene Viewfinder</span>
-                    <span className="text-[9px] text-editorial-dark/50 block font-serif">Simulates visual camera capture in this preview container</span>
+                    <span className="text-xs uppercase tracking-widest font-bold text-editorial-dark block">Attach Verification Photo</span>
+                    <span className="text-[9px] text-editorial-dark/50 block font-serif">Capture a local camera frame or select an image file</span>
                   </div>
+
+                  <button
+                    type="button"
+                    onClick={onOpenSimulator}
+                    className="bg-editorial-dark hover:bg-editorial-dark/95 text-editorial-bg border border-editorial-dark font-bold text-[9px] uppercase tracking-widest px-5 py-2 rounded-none transition-colors flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <Camera className="w-3.5 h-3.5" />
+                    <span>Open Camera</span>
+                  </button>
 
                   <div className="relative w-full flex items-center py-2">
                     <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-editorial-dark/20" /></div>
@@ -466,7 +473,7 @@ export default function ReportComponent({
                   
                   <div className="absolute bottom-3 left-3 bg-editorial-dark text-editorial-bg border border-editorial-dark px-3 py-1.5 flex items-center gap-2">
                     <Sparkles className="w-3.5 h-3.5 text-[#eaf1ff]" />
-                    <span className="text-[9px] uppercase tracking-widest font-bold">Catalogued via Gazette AI</span>
+                    <span className="text-[9px] uppercase tracking-widest font-bold">Saved to local photo archive</span>
                   </div>
 
                   <button
@@ -501,20 +508,25 @@ export default function ReportComponent({
           {/* Category Dropdown input */}
           <div className="flex flex-col gap-1.5">
             <label className="text-[10px] font-sans uppercase font-bold tracking-[0.2em] opacity-40" htmlFor="issue-category">
-              Incident Category
+              AI Classification
             </label>
             <select
               id="issue-category"
-              className="w-full text-editorial-dark text-xs uppercase tracking-wider py-3 px-4 bg-white rounded-none border border-editorial-dark focus:border-editorial-dark focus:ring-0 outline-none font-bold"
+              className="w-full text-editorial-dark text-xs uppercase tracking-wider py-3 px-4 bg-white rounded-none border border-editorial-dark focus:border-editorial-dark focus:ring-0 outline-none font-bold disabled:opacity-100"
               value={category}
-              onChange={(e) => setCategory(e.target.value as IssueCategory)}
-              required
+              disabled
             >
-              <option value="" disabled>Select indexing categories...</option>
-              <option value="potholes">Road Maintenance / Potholes</option>
-              <option value="graffiti">Sanitation & Graffiti</option>
-              <option value="streetlights">Utilities & Streetlights</option>
+              {ISSUE_CATEGORIES.map((issueCategory) => (
+                <option key={issueCategory.id} value={issueCategory.id}>
+                  {issueCategory.label}
+                </option>
+              ))}
             </select>
+            <span className="text-[9px] text-editorial-dark/45 font-serif">
+              {category === "other"
+                ? "The model will classify the image after capture or upload."
+                : `Classified as ${getIssueCategory(category).label}.`}
+            </span>
           </div>
 
           {/* Inline location framing visual mapping placeholder */}
