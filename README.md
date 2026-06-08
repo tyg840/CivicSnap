@@ -39,7 +39,7 @@ History entries are stored inside the report data in `civicpulse_issues`, so the
 
 ## Map And Report Locations
 
-The Map page uses Leaflet with OpenStreetMap tiles and opens centered on Toronto. You can pan and zoom the map like a normal world map.
+The Map page uses Leaflet with OpenStreetMap tiles and opens centered on Toronto at zoom level 15. You can pan and zoom the map like a normal world map, with close inspection limited to zoom level 21 and OpenStreetMap native tiles capped before unavailable tile levels.
 
 Report locations are entered through a typed address field. Use `Validate` to check the address against the Toronto map before filing. Invalid typed addresses do not silently fall back; the user must correct the address, use a suggestion, choose a testing example, or explicitly select `Use Toronto Core`.
 

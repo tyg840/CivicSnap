@@ -7,6 +7,10 @@ import { Search, SlidersHorizontal, MapPin, X, ThumbsUp, Plus } from "lucide-rea
 import { Issue, IssueCategory } from "../types";
 
 const TORONTO_CENTER: [number, number] = [43.6532, -79.3832];
+const MAP_DEFAULT_ZOOM = 15;
+const MAP_MIN_ZOOM = 11;
+const MAP_MAX_ZOOM = 21;
+const MAP_MAX_NATIVE_TILE_ZOOM = 19;
 
 const getCoordinateKey = (issue: Issue) => `${issue.lat.toFixed(4)}:${issue.lng.toFixed(4)}`;
 
@@ -169,15 +173,18 @@ export default function MapComponent({ issues, onVote, onNavigateToReport }: Map
   return (
     <div id="map-container" className="relative w-full h-[calc(100vh-64px)] md:h-[calc(100vh-64px)] flex-1 overflow-hidden bg-editorial-bg">
       <MapContainer
+        key={`toronto-map-${MAP_DEFAULT_ZOOM}-${MAP_MAX_ZOOM}`}
         center={TORONTO_CENTER}
-        zoom={13}
-        minZoom={11}
-        maxZoom={18}
+        zoom={MAP_DEFAULT_ZOOM}
+        minZoom={MAP_MIN_ZOOM}
+        maxZoom={MAP_MAX_ZOOM}
         zoomControl={false}
         className="absolute inset-0 z-0 h-full w-full grayscale-[0.15]"
       >
         <TileLayer
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+          maxZoom={MAP_MAX_ZOOM}
+          maxNativeZoom={MAP_MAX_NATIVE_TILE_ZOOM}
           url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
         />
         <ZoomControl position="bottomleft" />

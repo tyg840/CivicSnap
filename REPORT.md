@@ -60,6 +60,8 @@ Completed the draft implementation for a real Toronto-centered map, development 
 
 ### What changed
 
+- Updated the default map zoom from 13 to 15 and the maximum close zoom from 18 to 21 while keeping the minimum zoom at 11.
+- Added a stable map instance key and capped native OpenStreetMap tile requests so the new zoom default takes effect and close zooming does not blank the map.
 - Added `src/locations.ts` with shared mock Toronto locations, preset coordinates, wards, and fallback location resolution.
 - Installed `leaflet`, `react-leaflet`, and `@types/leaflet`.
 - Replaced the static map backdrop with a Leaflet/OpenStreetMap world map centered on Toronto.
