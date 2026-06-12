@@ -2,14 +2,15 @@
 
 ## Main TODO
 
-- [ ] Auth/profile behavior for development mode
-- [ ] Stats collection and page
-- [ ] Production persistence decision
 - [ ] Deployment readiness
 - [ ] Testing and verification
 
 ## Draft Completed (move a task here once you have a draft)
 
+- [x] Toronto 311 Open311 API test script
+- [x] Auth/profile behavior for development mode
+- [x] Production persistence decision
+- [x] Stats collection and page
 - [x] AI analysis fallback and OpenAI integration polish
 - [x] Camera/photo issue capture
 

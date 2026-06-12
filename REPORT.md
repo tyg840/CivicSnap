@@ -1,12 +1,160 @@
 # Development Report
 
+## Supabase auth
+
+Completed the draft implementation for Supabase-backed authentication.
+
+### What changed
+
+- Installed `@supabase/supabase-js`.
+- Added `src/supabase.ts` for the browser Supabase client, config checks, and Supabase-user-to-app-user mapping.
+- Added `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` placeholders to `.env.example` and appended missing placeholders to the local `.env` without printing existing secrets.
+- Replaced browser-local development account login/signup with Supabase email/password login and signup.
+- Routed Google and Apple buttons through Supabase OAuth providers.
+- Added Supabase session restoration and auth-state subscription in `App.tsx`.
+- Updated sign-out, reset, and profile metadata updates to call Supabase Auth.
+- Removed the obsolete custom Google token verification route and local development account registry code.
+- Updated README with Supabase Auth setup instructions.
+
+### Checks
+
+- Passed: `bun run lint`
+- Passed: `bun run build`
+
+## Toronto Open311 API test script
+
+Completed the draft command-line test script for Toronto 311/Open311 API calls.
+
+### What changed
+
+- Added `script/toronto-open311-test.ts` with discovery, service list, service definition, dry-run payload, and guarded submit commands.
+- Added the `open311:test` Bun script.
+- Added Toronto Open311 environment placeholders to `.env.example`.
+- Updated `README.md` with setup and usage notes for the script.
+
+### Checks
+
+- Passed: `bun run lint`
+- Passed: `bun run build`
+- Not run: `bun run open311:test payload` was blocked by the local Windows sandbox spawn setup before the script process started.
+
+## Tencent COS report storage
+
+Completed the draft implementation for Tencent Cloud COS report storage.
+
+### What changed
+
+- Installed `cos-nodejs-sdk-v5`.
+- Added Tencent COS environment variables to `.env.example` and appended missing placeholders to the local `.env` without printing existing secrets.
+- Updated `/api/photos` so images save under `<uid>/<reportId>/files/` in COS when configured, with the same folder structure under `data/` as the local fallback.
+- Added `/api/reports` to persist final report data as `<uid>/<reportId>/report-details.json`.
+- Updated camera capture and file upload flows to share the same report ID that the submitted report uses.
+- Updated report create/edit handling to save the final report JSON after local state is updated.
+- Updated README and TODO with the COS storage setup and persistence decision.
+
+### Checks
+
+- Passed: `bun run lint`
+- Passed: `bun run build`
+- Passed: local `/api/photos` and `/api/reports` smoke test wrote `smoke_user/smoke_report/files/...` and `smoke_user/smoke_report/report-details.json` using the fallback storage path.
+
+## Local stats tracking
+
+Completed the draft implementation for locally tracked statistics.
+
+### What changed
+
+- Added `src/stats.ts` to calculate report totals, active/resolved status counts, ward totals, solved counts per ward, and issue-category percentages from saved reports.
+- Updated the Statistics tab to use the local report list instead of placeholder citywide baselines.
+- Updated Profile quick stats to use the same tracked calculation for the signed-in user's saved reports.
+- Removed visible homepage copy that claimed fixed placeholder performance numbers.
+- Updated `README.md` and `TODO.md` to document and track the local stats behavior.
+
+### Checks
+
+- Passed: `bun run lint`
+- Passed: `bun run build`
+
+## Superseded Google sign-in development hookup
+
+Completed the earlier draft fix for Google registration/sign-in so it no longer routed through a template development account. This custom route has since been superseded by Supabase Auth.
+
+### What changed
+
+- Added a temporary custom Google Identity Services flow before the Supabase Auth migration.
+- Later replaced that custom route and button rendering with Supabase OAuth.
+- Added a setup message when Google OAuth is not configured instead of silently creating a fake Google user.
+- Removed seeded Google and Apple template accounts from the default development account registry.
+- Left Apple sign-in disabled with an explicit not-connected message.
+- Updated `.env.example` and `README.md` with Google OAuth client ID setup notes.
+
+### Checks
+
+- Passed: `bun run lint`
+- Passed: `bun run build`
+- Superseded: Google OAuth is now configured through Supabase providers.
+
+## Auth/profile development behavior
+
+Completed the draft implementation for local development auth and editable profile behavior.
+
+### What changed
+
+- Added a browser-local development account registry under `civicpulse_dev_accounts`.
+- Seeded a demo development account while keeping sessions in `civicpulse_user`.
+- Updated login to validate against local development accounts instead of inventing a user from any email.
+- Updated signup to create persisted local-only development accounts.
+- Replaced mock ward options with Toronto's 25-ward list in auth and profile editing.
+- Added inline Profile editing for name, email, ward, phone, and profile note.
+- Preserved local report ownership when the signed-in user's email changes.
+- Reset Local Development Data now clears the active user and development accounts, then restores seed reports.
+- Superseded: account registry behavior has since been replaced by Supabase Auth.
+
+### Checks
+
+- Passed: `bun run lint`
+- Passed: `bun run build`
+
+## CivicSnap rename
+
+Completed the local product and package rename from CivicPulse/New Reporting App to CivicSnap/civic-snap.
+
+### What changed
+
+- Updated browser title, metadata, visible app header, auth branding, server startup log, and geocoding user agent to CivicSnap.
+- Updated `package.json` and `bun.lock` package names to `civic-snap`.
+- Updated `README.md` development-data wording to use CivicSnap.
+
+### Checks
+
+- Passed: `bun run lint`
+- Passed: `bun run build`
+
+## Report capture and location cleanup
+
+Completed the draft cleanup for camera entry points, stricter location validation, and more natural AI report copy.
+
+### What changed
+
+- Updated the Snap Scene mode button so it opens the camera capture flow directly.
+- Removed testing location example buttons and the `Use Toronto Core` fallback action from the Report form.
+- Removed the pre-validation mock location preview so ward labels appear only after a typed address, suggestion, or browser location has been resolved.
+- Kept browser location opt-in as a permission-gated location path.
+- Updated `src/issueConfig.ts` so AI-generated titles and descriptions use plain, natural report language instead of image-caption phrasing.
+- Updated `README.md` to describe the stricter location and ward-label behavior.
+
+### Checks
+
+- Passed: `bun run lint`
+- Passed: `bun run build`
+
 ## Camera/photo issue capture
 
 Completed the draft implementation for local camera capture and photo file persistence.
 
 ### What changed
 
-- Added `/api/photos` in `server.ts` to save PNG, JPEG, WEBP, and GIF data URLs into `data/<uid>/`.
+- Added `/api/photos` in `server.ts` to save PNG, JPEG, WEBP, and GIF data URLs into report-scoped storage.
 - Exposed the local `data` folder at `/data` so saved report images can be previewed and reused by reports.
 - Added `src/photoStorage.ts` with client helpers for deriving a development UID and uploading captured photos.
 - Updated `src/components/CameraView.tsx` to use browser camera capture, save shutter frames to the backend, and keep file upload as a fallback path.

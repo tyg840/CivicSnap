@@ -1,5 +1,5 @@
 {
-  "name": "CivicPulse",
+  "name": "CivicSnap",
   "description": "A municipal issue reporting and tracking platform empowering local communities through dynamic map visualization, smart AI auto-fill reports, and interactive analytics.",
   "requestFramePermissions": [
     "camera"
