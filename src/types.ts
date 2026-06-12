@@ -33,6 +33,8 @@ export interface User {
   email: string;
   name: string;
   ward: string;
+  bio?: string;
+  phone?: string;
 }
 
 export interface WardStat {

@@ -1,6 +1,8 @@
 import React, { useState } from "react";
 import { Building2, LogIn, UserPlus, Info } from "lucide-react";
 import { User } from "../types";
+import { TORONTO_WARDS_25 } from "../wards";
+import { isSupabaseConfigured, mapSupabaseUser, supabase } from "../supabase";
 
 interface AuthProps {
   onAuthSuccess: (user: User) => void;
@@ -11,8 +13,8 @@ export default function AuthComponent({ onAuthSuccess, onCancel }: AuthProps) {
   const [activeTab, setActiveTab] = useState<"login" | "signup">("login");
   
   // Login Form States
-  const [loginEmail, setLoginEmail] = useState("citizen@city.gov");
-  const [loginPassword, setLoginPassword] = useState("password123");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
   
   // Signup Form States
   const [signupName, setSignupName] = useState("");
@@ -20,28 +22,54 @@ export default function AuthComponent({ onAuthSuccess, onCancel }: AuthProps) {
   const [signupWard, setSignupWard] = useState("");
   const [signupPassword, setSignupPassword] = useState("");
   const [errorMsg, setErrorMsg] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const requireSupabase = () => {
+    if (!isSupabaseConfigured || !supabase) {
+      setErrorMsg("Supabase Auth needs VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in .env.");
+      return null;
+    }
+
+    return supabase;
+  };
+
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!loginEmail || !loginPassword) {
       setErrorMsg("Please fill in all fields.");
       return;
     }
-    
-    // Simulate lookup / login Alex Mercer default or generic name
-    const matchesDefault = loginEmail.toLowerCase() === "citizen@city.gov" || loginEmail.toLowerCase() === "alex@city.gov" || loginEmail.toLowerCase().includes("mercer");
-    const name = matchesDefault ? "Alex Mercer" : loginEmail.split("@")[0].replace(".", " ");
-    const formattedName = name.charAt(0).toUpperCase() + name.slice(1);
-    
-    const loggedUser: User = {
-      email: loginEmail,
-      name: formattedName,
-      ward: matchesDefault ? "Ward 3 - East End" : "Ward 1 - Downtown",
-    };
-    onAuthSuccess(loggedUser);
+
+    const client = requireSupabase();
+    if (!client) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrorMsg("");
+
+    try {
+      const { data, error } = await client.auth.signInWithPassword({
+        email: loginEmail.trim().toLowerCase(),
+        password: loginPassword,
+      });
+
+      if (error) {
+        throw error;
+      }
+      if (!data.user) {
+        throw new Error("Supabase did not return a signed-in user.");
+      }
+
+      onAuthSuccess(mapSupabaseUser(data.user));
+    } catch (error: any) {
+      setErrorMsg(error.message || "Supabase login failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
-  const handleSignupSubmit = (e: React.FormEvent) => {
+  const handleSignupSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!signupName || !signupEmail || !signupWard || !signupPassword) {
       setErrorMsg("Please provide all required registration fields.");
@@ -52,12 +80,64 @@ export default function AuthComponent({ onAuthSuccess, onCancel }: AuthProps) {
       return;
     }
 
-    const registeredUser: User = {
-      email: signupEmail,
-      name: signupName,
-      ward: signupWard,
-    };
-    onAuthSuccess(registeredUser);
+    const client = requireSupabase();
+    if (!client) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrorMsg("");
+
+    try {
+      const { data, error } = await client.auth.signUp({
+        email: signupEmail.trim().toLowerCase(),
+        password: signupPassword,
+        options: {
+          data: {
+            full_name: signupName.trim(),
+            ward: signupWard,
+            bio: "",
+            phone: "",
+          },
+        },
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      if (data.session && data.user) {
+        onAuthSuccess(mapSupabaseUser(data.user));
+      } else {
+        setErrorMsg("Supabase created the account. Check your email to confirm before signing in.");
+      }
+    } catch (error: any) {
+      setErrorMsg(error.message || "Supabase signup failed.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleSupabaseOAuth = async (provider: "google" | "apple") => {
+    const client = requireSupabase();
+    if (!client) {
+      return;
+    }
+
+    setIsSubmitting(true);
+    setErrorMsg("");
+
+    const { error } = await client.auth.signInWithOAuth({
+      provider,
+      options: {
+        redirectTo: window.location.origin,
+      },
+    });
+
+    if (error) {
+      setErrorMsg(error.message);
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -76,7 +156,7 @@ export default function AuthComponent({ onAuthSuccess, onCancel }: AuthProps) {
         <div className="relative z-20 text-center max-w-sm flex flex-col items-center gap-6">
           <div className="flex items-center gap-2">
             <Building2 className="w-10 h-10 text-editorial-bg" />
-            <h1 className="text-3xl font-serif font-bold text-editorial-bg uppercase italic tracking-tight">CivicPulse</h1>
+            <h1 className="text-3xl font-serif font-bold text-editorial-bg uppercase italic tracking-tight">CivicSnap</h1>
           </div>
           <p className="text-editorial-bg/85 text-xs uppercase tracking-widest leading-relaxed font-bold font-sans">
             An independent crowdsourced visual gazette tracking community resolutions and street transparency across Toronto boroughs.
@@ -149,7 +229,7 @@ export default function AuthComponent({ onAuthSuccess, onCancel }: AuthProps) {
                   id="login-email"
                   type="email"
                   className="w-full text-editorial-dark text-xs uppercase tracking-wider py-3 px-4 bg-white rounded-none border border-editorial-dark focus:border-editorial-dark focus:ring-0 outline-none"
-                  placeholder="citizen@city.gov"
+                  placeholder="you@example.com"
                   value={loginEmail}
                   onChange={(e) => setLoginEmail(e.target.value)}
                   required
@@ -179,10 +259,11 @@ export default function AuthComponent({ onAuthSuccess, onCancel }: AuthProps) {
               <button
                 id="submit-login-btn"
                 type="submit"
+                disabled={isSubmitting}
                 className="w-full bg-editorial-dark text-editorial-bg font-bold py-3.5 px-4 rounded-none border border-editorial-dark flex items-center justify-center gap-1.5 transition-all text-[10px] uppercase tracking-widest mt-4 cursor-pointer hover:bg-editorial-dark/95"
               >
                 <LogIn className="w-3.5 h-3.5" />
-                <span>Validate Details</span>
+                <span>{isSubmitting ? "Signing In" : "Sign In With Supabase"}</span>
               </button>
             </form>
           ) : (
@@ -229,12 +310,12 @@ export default function AuthComponent({ onAuthSuccess, onCancel }: AuthProps) {
                   onChange={(e) => setSignupWard(e.target.value)}
                   required
                 >
-                  <option value="" disabled>Select your borough</option>
-                  <option value="Ward 1 - Downtown">Ward 1 - Downtown</option>
-                  <option value="Ward 2 - Northside">Ward 2 - Northside</option>
-                  <option value="Ward 3 - East End">Ward 3 - East End</option>
-                  <option value="Ward 4 - West Hills">Ward 4 - West Hills</option>
-                  <option value="Ward 5 - South Park">Ward 5 - South Park</option>
+                  <option value="" disabled>Select your ward</option>
+                  {TORONTO_WARDS_25.map((ward) => (
+                    <option key={ward.id} value={ward.label}>
+                      {ward.label}
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -257,10 +338,11 @@ export default function AuthComponent({ onAuthSuccess, onCancel }: AuthProps) {
               <button
                 id="submit-signup-btn"
                 type="submit"
+                disabled={isSubmitting}
                 className="w-full bg-editorial-dark text-editorial-bg font-bold py-3.5 px-4 rounded-none border border-editorial-dark flex items-center justify-center gap-1.5 transition-all text-[10px] uppercase tracking-widest mt-4 cursor-pointer hover:bg-editorial-dark/95"
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                <span>Register Identity</span>
+                <span>{isSubmitting ? "Creating Account" : "Create Supabase Account"}</span>
               </button>
             </form>
           )}
@@ -272,15 +354,16 @@ export default function AuthComponent({ onAuthSuccess, onCancel }: AuthProps) {
                 <div className="w-full border-t border-editorial-dark/15" />
               </div>
               <div className="relative flex justify-center text-xs font-semibold">
-                <span className="px-3 bg-white text-editorial-dark/40 uppercase tracking-[0.2em] text-[8px]">Index credentials via</span>
+                <span className="px-3 bg-white text-editorial-dark/40 uppercase tracking-[0.2em] text-[8px]">Continue with Supabase OAuth</span>
               </div>
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <button 
+              <button
                 type="button"
-                onClick={() => onAuthSuccess({ email: "google-user@gmail.com", name: "Google Citizen User", ward: "Ward 1 - Downtown" })}
-                className="flex items-center justify-center gap-2 py-3 px-4 border border-editorial-dark bg-white hover:bg-editorial-subtle transition-colors cursor-pointer text-editorial-dark text-[9px] uppercase tracking-widest font-bold font-sans rounded-none"
+                onClick={() => handleSupabaseOAuth("google")}
+                disabled={isSubmitting}
+                className="w-full flex items-center justify-center gap-2 py-3 px-4 border border-editorial-dark bg-white hover:bg-editorial-subtle transition-colors cursor-pointer text-editorial-dark text-[9px] uppercase tracking-widest font-bold font-sans rounded-none disabled:opacity-60"
               >
                 <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"></path>
@@ -293,8 +376,9 @@ export default function AuthComponent({ onAuthSuccess, onCancel }: AuthProps) {
               
               <button 
                 type="button"
-                onClick={() => onAuthSuccess({ email: "apple-user@icloud.com", name: "Apple Citizen User", ward: "Ward 2 - Northside" })}
-                className="flex items-center justify-center gap-2 py-3 px-4 border border-editorial-dark bg-white hover:bg-editorial-subtle transition-colors cursor-pointer text-editorial-dark text-[9px] uppercase tracking-widest font-bold font-sans rounded-none"
+                onClick={() => handleSupabaseOAuth("apple")}
+                disabled={isSubmitting}
+                className="flex items-center justify-center gap-2 py-3 px-4 border border-editorial-dark bg-white hover:bg-editorial-subtle transition-colors cursor-pointer text-editorial-dark text-[9px] uppercase tracking-widest font-bold font-sans rounded-none disabled:opacity-60"
               >
                 <svg className="h-3.5 w-3.5 overlay-svg fill-current" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
                   <path d="M17.05 20.28c-.98.95-2.05.88-3.08.4-1.09-.5-2.08-.48-3.24 0-1.44.62-2.2.44-3.06-.4C2.79 15.25 3.51 7.59 9.05 7.31c1.35.07 2.29.74 3.08.78.78-.04 1.94-.84 3.39-.71 1.5.15 2.66.75 3.36 1.8-3.14 1.86-2.58 5.76.35 6.94-.74 1.76-1.57 3.34-2.18 4.16zM12.03 7.25c-.15-2.23 1.66-4.07 3.74-4.25.29 2.58-2.34 4.5-3.74 4.25z"></path>

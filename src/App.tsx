@@ -18,7 +18,8 @@ import {
 } from "./storage";
 import { findKnownReportLocation } from "./locations";
 import { resolveReportLocation } from "./geocoding";
-import { getUserPhotoUid } from "./photoStorage";
+import { getUserPhotoUid, saveReportDetails } from "./photoStorage";
+import { mapSupabaseUser, supabase } from "./supabase";
 
 const createHistoryEntry = (action: "Created" | "Edited", summary: string) => ({
   id: `history_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
@@ -26,6 +27,8 @@ const createHistoryEntry = (action: "Created" | "Edited", summary: string) => ({
   summary,
   timestamp: new Date().toISOString(),
 });
+
+const createReportId = () => `user_${Math.random().toString(36).slice(2, 11)}`;
 
 const getKnownWardLabel = (address: string) => findKnownReportLocation(address)?.ward || "Ward 13 - Toronto Centre";
 
@@ -111,6 +114,7 @@ export default function App() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
   const [editingIssue, setEditingIssue] = useState<Issue | null>(null);
+  const [draftReportId, setDraftReportId] = useState(createReportId);
   
   // Temporary storage for captured camera assets
   const [capturedImage, setCapturedImage] = useState<string | null>(null);
@@ -123,6 +127,25 @@ export default function App() {
       setUser(cachedUser);
     }
 
+    supabase?.auth.getSession().then(({ data }) => {
+      if (data.session?.user) {
+        const sessionUser = mapSupabaseUser(data.session.user);
+        setUser(sessionUser);
+        saveStoredUser(sessionUser);
+      }
+    });
+
+    const authSubscription = supabase?.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        const sessionUser = mapSupabaseUser(session.user);
+        setUser(sessionUser);
+        saveStoredUser(sessionUser);
+      } else {
+        setUser(null);
+        clearStoredUser();
+      }
+    });
+
     const cachedIssues = loadStoredIssues();
     if (cachedIssues) {
       const { didMigrate, migratedIssues } = migrateKnownReportLocations(cachedIssues);
@@ -134,6 +157,10 @@ export default function App() {
       setIssues(DEFAULT_ISSUES);
       saveStoredIssues(DEFAULT_ISSUES);
     }
+
+    return () => {
+      authSubscription?.data.subscription.unsubscribe();
+    };
   }, []);
 
   const saveIssues = (updatedIssues: Issue[]) => {
@@ -149,13 +176,51 @@ export default function App() {
   };
 
   // Logout callback
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    await supabase?.auth.signOut();
     setUser(null);
     clearStoredUser();
     setCurrentTab("home");
   };
 
+  const handleUpdateUserProfile = (updatedUser: User) => {
+    const previousEmail = user?.email;
+    const nextUser = {
+      ...updatedUser,
+      email: updatedUser.email.trim().toLowerCase(),
+      name: updatedUser.name.trim(),
+      ward: updatedUser.ward,
+      bio: updatedUser.bio?.trim(),
+      phone: updatedUser.phone?.trim(),
+    };
+    setUser(nextUser);
+    saveStoredUser(nextUser);
+    supabase?.auth.updateUser({
+      email: nextUser.email,
+      data: {
+        full_name: nextUser.name,
+        ward: nextUser.ward,
+        bio: nextUser.bio || "",
+        phone: nextUser.phone || "",
+      },
+    }).catch((error) => {
+      console.error("Supabase profile update failed:", error);
+    });
+
+    if (previousEmail && previousEmail.toLowerCase() !== nextUser.email.toLowerCase()) {
+      const updatedIssues = issues.map((issue) =>
+        issue.userEmail?.toLowerCase() === previousEmail.toLowerCase()
+          ? { ...issue, userEmail: nextUser.email }
+          : issue
+      );
+      saveIssues(updatedIssues);
+    }
+  };
+
   const handleResetDevelopmentData = () => {
+    supabase?.auth.signOut().catch((error) => {
+      console.error("Supabase sign-out during reset failed:", error);
+    });
     resetStoredDevelopmentData(DEFAULT_ISSUES);
     setUser(null);
     setIssues(DEFAULT_ISSUES);
@@ -198,6 +263,7 @@ export default function App() {
 
   const navigateToCreateReport = () => {
     setEditingIssue(null);
+    setDraftReportId(createReportId());
     setCurrentTab("report");
   };
 
@@ -224,11 +290,17 @@ export default function App() {
     saveIssues(updated);
   };
 
+  const persistReportDetails = (issue: Issue) => {
+    saveReportDetails(getUserPhotoUid(user), issue.id, issue).catch((error) => {
+      console.error("Report details storage failed:", error);
+    });
+  };
+
   // Adding newly resolved issue from subcomponents
-  const handleAddNewIssue = (newIssueData: Omit<Issue, "id" | "date" | "votes" | "status" | "votedByUser">) => {
+  const handleAddNewIssue = (newIssueData: Omit<Issue, "date" | "votes" | "status" | "votedByUser">) => {
     const newIssue: Issue = {
       ...newIssueData,
-      id: "user_" + Math.random().toString(36).substr(2, 9),
+      id: newIssueData.id || draftReportId,
       votes: 1,
       status: "Reported",
       date: "Just now",
@@ -244,6 +316,8 @@ export default function App() {
 
     const updated = [newIssue, ...issues];
     saveIssues(updated);
+    persistReportDetails(newIssue);
+    setDraftReportId(createReportId());
     setCurrentTab("map"); // Automatically slide back to map to see pin
   };
 
@@ -255,12 +329,13 @@ export default function App() {
   };
 
   const handleUpdateIssue = (issueId: string, updatedIssueData: Omit<Issue, "id" | "date" | "votes" | "status" | "votedByUser">) => {
+    let updatedIssue: Issue | null = null;
     const updated = issues.map((issue) => {
       if (issue.id !== issueId) {
         return issue;
       }
 
-      return {
+      updatedIssue = {
         ...issue,
         ...updatedIssueData,
         userEmail: issue.userEmail,
@@ -272,9 +347,13 @@ export default function App() {
           ),
         ],
       };
+      return updatedIssue;
     });
 
     saveIssues(updated);
+    if (updatedIssue) {
+      persistReportDetails(updatedIssue);
+    }
     setEditingIssue(null);
     setCurrentTab("profile");
   };
@@ -305,8 +384,8 @@ export default function App() {
           className="flex items-center gap-2 cursor-pointer py-1.5 transition-transform active:scale-95 duration-100 select-none"
         >
           <Building2 className="w-4 h-4 text-editorial-dark" />
-          <span className="font-serif font-bold text-xl italic tracking-tight">CivicPulse</span>
-          <span className="font-sans text-[8px] uppercase tracking-[0.2em] font-bold opacity-50 ml-2 hidden sm:inline">The Citizen Gazette</span>
+          <span className="font-serif font-bold text-xl italic tracking-tight">CivicSnap</span>
+          <span className="font-sans text-[8px] uppercase tracking-[0.2em] font-bold opacity-50 ml-2 hidden sm:inline">The Civic Lens</span>
         </div>
 
         {/* Desktop Navbar link array */}
@@ -432,6 +511,7 @@ export default function App() {
             onCancelEdit={handleCancelReportEdit}
             onOpenSimulator={() => setIsCameraOpen(true)}
             photoUid={getUserPhotoUid(user)}
+            reportId={editingIssue?.id || draftReportId}
             capturedImage={capturedImage}
             capturedFallbackType={capturedFallbackType}
             resetCapturedImage={() => {
@@ -447,6 +527,7 @@ export default function App() {
             issues={issues}
             onNavigateToAuth={() => setCurrentTab("auth")}
             onSignOut={handleSignOut}
+            onUpdateUser={handleUpdateUserProfile}
             onResetDevelopmentData={handleResetDevelopmentData}
             onRecalculateSavedReportLocations={handleRecalculateSavedReportLocations}
             onEditIssue={handleEditIssue}
@@ -527,6 +608,7 @@ export default function App() {
       {isCameraOpen && (
         <CameraViewComponent
           uid={getUserPhotoUid(user)}
+          reportId={editingIssue?.id || draftReportId}
           onCapture={handleCameraCapture}
           onClose={() => setIsCameraOpen(false)}
         />
