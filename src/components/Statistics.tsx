@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { TrendingUp, ArrowDown, Construction, Paintbrush, Lightbulb, PieChart, PlusCircle, BarChart } from "lucide-react";
 import { Issue } from "../types";
 import { getIssueCategory } from "../issueConfig";
+import { calculateIssueStats } from "../stats";
 
 interface StatisticsProps {
   issues: Issue[];
@@ -11,60 +12,11 @@ interface StatisticsProps {
 export default function StatisticsComponent({ issues, onNavigateToReport }: StatisticsProps) {
   const [hoveredWard, setHoveredWard] = useState<string | null>(null);
 
-  // Compute stats on the fly!
-  const computedStats = useMemo(() => {
-    // Standard baseline database historic data
-    const baselineSolved = 12450;
-    const userIssuesCount = issues.length;
-    const resolvedUserIssues = issues.filter((i) => i.status === "Resolved").length;
-
-    const totalSolved = baselineSolved + resolvedUserIssues;
-
-    // Ward counts: baseline + user issues
-    const wardBaselines: Record<string, number> = {
-      "Ward 1": 150,
-      "Ward 2": 240,
-      "Ward 3": 380,
-      "Ward 4": 120,
-      "Ward 5": 210,
-    };
-
-    issues.forEach((issue) => {
-      const w = issue.ward.split(" - ")[0]; // e.g. "Ward 1"
-      if (wardBaselines[w] !== undefined) {
-        wardBaselines[w] += 1;
-      } else {
-        wardBaselines["Ward 1"] += 1; // Fallback
-      }
-    });
-
-    const maxWardCount = Math.max(...Object.values(wardBaselines));
-
-    // Category counts
-    const categoryBaselines: Record<string, number> = {
-      potholes: 450 + issues.filter((i) => i.category === "potholes").length,
-      graffiti: 300 + issues.filter((i) => i.category === "graffiti").length,
-      streetlights: 250 + issues.filter((i) => i.category === "streetlights").length,
-      other: issues.filter((i) => i.category === "other").length,
-    };
-
-    const totalCategoryCount = categoryBaselines.potholes + categoryBaselines.graffiti + categoryBaselines.streetlights + categoryBaselines.other;
-    const percentages = {
-      potholes: totalCategoryCount ? Math.round((categoryBaselines.potholes / totalCategoryCount) * 100) : 45,
-      graffiti: totalCategoryCount ? Math.round((categoryBaselines.graffiti / totalCategoryCount) * 100) : 30,
-      streetlights: totalCategoryCount ? Math.round((categoryBaselines.streetlights / totalCategoryCount) * 100) : 25,
-      other: totalCategoryCount ? Math.round((categoryBaselines.other / totalCategoryCount) * 100) : 0,
-    };
-
-    return {
-      totalSolved,
-      wardBaselines,
-      maxWardCount,
-      percentages,
-      userIssuesCount,
-      resolvedUserIssues,
-    };
-  }, [issues]);
+  const computedStats = useMemo(() => calculateIssueStats(issues), [issues]);
+  const topWardStats = computedStats.wardStats.slice(0, 5);
+  const visibleWardStats = topWardStats.length
+    ? topWardStats
+    : [{ name: "No Reports Yet", solved: 0, total: 0 }];
 
   return (
     <div id="statistics-view" className="max-w-6xl mx-auto px-4 md:px-12 py-10 flex flex-col gap-8 bg-editorial-bg text-editorial-dark min-h-screen">
@@ -80,22 +32,22 @@ export default function StatisticsComponent({ issues, onNavigateToReport }: Stat
         </p>
       </div>
 
-      {/* Hero Card: Total Reports Solved */}
+      {/* Hero Card: Total Reports Tracked */}
       <section id="banner-total-solved" className="bg-white border border-editorial-dark p-8 rounded-none">
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-8">
           <div className="space-y-3 max-w-sm">
-            <h2 className="text-[10px] font-sans uppercase font-extrabold tracking-[0.2em] opacity-40">Cumulative Solves</h2>
+            <h2 className="text-[10px] font-sans uppercase font-extrabold tracking-[0.2em] opacity-40">Tracked Reports</h2>
             <div className="flex flex-wrap items-baseline gap-3">
               <span className="text-5xl font-serif font-extrabold text-editorial-dark tracking-[-0.02em]">
-                {computedStats.totalSolved.toLocaleString()}
+                {computedStats.totalReports.toLocaleString()}
               </span>
               <span className="font-bold text-[9px] uppercase tracking-widest text-editorial-dark border border-editorial-dark px-2.5 py-0.5 bg-editorial-accent flex items-center select-none">
                 <TrendingUp className="w-3 h-3 mr-1" />
-                +15% monthly bounce
+                {computedStats.activeReports} active
               </span>
             </div>
             <p className="text-xs text-editorial-dark/65 leading-relaxed">
-              Calculated across all five primary administrative boundaries. Includes {computedStats.resolvedUserIssues} live verified citizen updates.
+              Calculated from the locally saved report list. Includes {computedStats.resolvedReports} resolved reports and {computedStats.inProgressReports} reports currently in progress.
             </p>
           </div>
 
@@ -139,7 +91,7 @@ export default function StatisticsComponent({ issues, onNavigateToReport }: Stat
             <div className="absolute top-2 left-3 text-[8px] font-bold tracking-widest text-editorial-dark/40 uppercase">Archival Dispatch Curve</div>
             <div className="absolute top-2 right-3 text-[8px] font-sans font-bold tracking-wider text-editorial-dark flex items-center gap-1 bg-white border border-editorial-dark px-1.5 py-0.5">
               <span className="w-1 h-1 bg-editorial-dark rounded-full" />
-              Optimal Speed Threshold
+              Local Report Trend
             </div>
           </div>
         </div>
@@ -159,22 +111,22 @@ export default function StatisticsComponent({ issues, onNavigateToReport }: Stat
           </div>
 
           <div className="h-48 flex items-end justify-between items-stretch gap-4 px-2 select-none relative pt-6 shrink-0">
-            {Object.entries(computedStats.wardBaselines).map(([wardName, count]) => {
-              const percentage = ((count as number) / computedStats.maxWardCount) * 100;
-              const isHovered = hoveredWard === wardName;
+            {visibleWardStats.map((ward) => {
+              const percentage = ward.total ? (ward.total / computedStats.maxWardTotal) * 100 : 6;
+              const isHovered = hoveredWard === ward.name;
 
               return (
                 <div
-                  key={wardName}
+                  key={ward.name}
                   className="flex-1 flex flex-col justify-end items-center group relative cursor-pointer"
-                  onMouseEnter={() => setHoveredWard(wardName)}
+                  onMouseEnter={() => setHoveredWard(ward.name)}
                   onMouseLeave={() => setHoveredWard(null)}
                 >
                   {/* Floating tooltip above hovered bar */}
                   <div className={`absolute -top-6 bg-editorial-dark text-editorial-bg font-sans font-bold text-[8px] tracking-wider uppercase px-2 py-0.5 rounded-none border border-editorial-dark shadow transition-opacity duration-150 transform -translate-y-1 z-10 pointer-events-none ${
                     isHovered ? "opacity-100" : "opacity-0"
                   }`}>
-                    {count} records
+                    {ward.total} records / {ward.solved} solved
                   </div>
 
                   {/* Visual Bar Column */}
@@ -191,7 +143,7 @@ export default function StatisticsComponent({ issues, onNavigateToReport }: Stat
                   <span className={`text-[9px] uppercase tracking-wider font-bold mt-3 transition-colors duration-150 ${
                     isHovered ? "text-editorial-dark" : "text-editorial-dark/40"
                   }`}>
-                    {wardName}
+                    {ward.name}
                   </span>
                 </div>
               );
@@ -205,13 +157,15 @@ export default function StatisticsComponent({ issues, onNavigateToReport }: Stat
           {/* Average Response Time metrics container */}
           <div id="stats-avg-response" className="bg-white border border-editorial-dark p-6 flex items-center justify-between rounded-none">
             <div className="space-y-1">
-              <h3 className="text-lg font-serif font-bold italic text-editorial-dark">Mean Resolve Rate</h3>
-              <p className="text-[11px] text-editorial-dark/65">Standard dispatch response time limit.</p>
+              <h3 className="text-lg font-serif font-bold italic text-editorial-dark">Resolution Status</h3>
+              <p className="text-[11px] text-editorial-dark/65">Current split of locally tracked reports.</p>
             </div>
             <div className="text-right">
-              <span className="text-3xl font-serif font-extrabold text-editorial-dark leading-none">2.4 Days</span>
+              <span className="text-3xl font-serif font-extrabold text-editorial-dark leading-none">
+                {computedStats.resolvedReports}/{computedStats.totalReports}
+              </span>
               <p className="text-[9px] font-sans font-bold text-editorial-dark/70 mt-1.5 flex items-center justify-end bg-editorial-accent px-2 py-0.5 border border-editorial-dark/20 uppercase tracking-widest">
-                <ArrowDown className="w-3 h-3 mr-0.5" /> Faster by 0.3 days
+                <ArrowDown className="w-3 h-3 mr-0.5" /> {computedStats.reportedReports} newly reported
               </p>
             </div>
           </div>
@@ -227,22 +181,22 @@ export default function StatisticsComponent({ issues, onNavigateToReport }: Stat
                 <li className="flex items-center gap-2.5 text-[11px] text-editorial-dark font-medium">
                   <span className="w-2.5 h-2.5 bg-[#121212] border border-editorial-dark shrink-0" />
                   <Construction className="w-3.5 h-3.5 text-editorial-dark/50" />
-                  <span>{getIssueCategory("potholes").statsLabel} ({computedStats.percentages.potholes}%)</span>
+                  <span>{getIssueCategory("potholes").statsLabel} ({computedStats.categoryPercentages.potholes}%)</span>
                 </li>
                 <li className="flex items-center gap-2.5 text-[11px] text-editorial-dark font-medium">
                   <span className="w-2.5 h-2.5 bg-[#6B665E] border border-editorial-dark shrink-0" />
                   <Paintbrush className="w-3.5 h-3.5 text-editorial-dark/50" />
-                  <span>{getIssueCategory("graffiti").statsLabel} ({computedStats.percentages.graffiti}%)</span>
+                  <span>{getIssueCategory("graffiti").statsLabel} ({computedStats.categoryPercentages.graffiti}%)</span>
                 </li>
                 <li className="flex items-center gap-2.5 text-[11px] text-editorial-dark font-medium">
                   <span className="w-2.5 h-2.5 bg-[#C7C2B4] border border-editorial-dark shrink-0" />
                   <Lightbulb className="w-3.5 h-3.5 text-editorial-dark/50" />
-                  <span>{getIssueCategory("streetlights").statsLabel} ({computedStats.percentages.streetlights}%)</span>
+                  <span>{getIssueCategory("streetlights").statsLabel} ({computedStats.categoryPercentages.streetlights}%)</span>
                 </li>
                 <li className="flex items-center gap-2.5 text-[11px] text-editorial-dark font-medium">
                   <span className="w-2.5 h-2.5 bg-[#5b4b8a] border border-editorial-dark shrink-0" />
                   <PieChart className="w-3.5 h-3.5 text-editorial-dark/50" />
-                  <span>{getIssueCategory("other").statsLabel} ({computedStats.percentages.other}%)</span>
+                  <span>{getIssueCategory("other").statsLabel} ({computedStats.categoryPercentages.other}%)</span>
                 </li>
               </ul>
             </div>
@@ -253,10 +207,10 @@ export default function StatisticsComponent({ issues, onNavigateToReport }: Stat
                 className="absolute inset-0 transition-transform duration-500 ease-out"
                 style={{
                   background: `conic-gradient(
-                    #121212 0% ${computedStats.percentages.potholes}%, 
-                    #6B665E ${computedStats.percentages.potholes}% ${computedStats.percentages.potholes + computedStats.percentages.graffiti}%, 
-                    #C7C2B4 ${computedStats.percentages.potholes + computedStats.percentages.graffiti}% ${computedStats.percentages.potholes + computedStats.percentages.graffiti + computedStats.percentages.streetlights}%,
-                    #5b4b8a ${computedStats.percentages.potholes + computedStats.percentages.graffiti + computedStats.percentages.streetlights}% 100%
+                    #121212 0% ${computedStats.categoryPercentages.potholes}%, 
+                    #6B665E ${computedStats.categoryPercentages.potholes}% ${computedStats.categoryPercentages.potholes + computedStats.categoryPercentages.graffiti}%, 
+                    #C7C2B4 ${computedStats.categoryPercentages.potholes + computedStats.categoryPercentages.graffiti}% ${computedStats.categoryPercentages.potholes + computedStats.categoryPercentages.graffiti + computedStats.categoryPercentages.streetlights}%,
+                    #5b4b8a ${computedStats.categoryPercentages.potholes + computedStats.categoryPercentages.graffiti + computedStats.categoryPercentages.streetlights}% 100%
                   )`
                 }}
               />
@@ -275,10 +229,10 @@ export default function StatisticsComponent({ issues, onNavigateToReport }: Stat
         <div className="relative z-10 space-y-4">
           <span className="text-[9px] font-sans font-bold text-editorial-dark uppercase tracking-[0.2em] opacity-40 block">Archival Dispatch Spotlight</span>
           <h2 className="text-3xl font-serif font-bold text-editorial-dark leading-tight uppercase max-w-lg">
-            Sustained Dispatch Acceleration Enabled
+            Local Report Totals Now Update
           </h2>
           <p className="text-xs text-editorial-dark/75 max-w-xl font-sans leading-relaxed">
-            By capturing direct physical photos, citizens have enabled municipal workers to find potholes faster, reducing delays. Your activity contributes to real accountability.
+            Every saved report now contributes to the ward index, status totals, and category ratios shown on this page.
           </p>
           <button
             onClick={onNavigateToReport}

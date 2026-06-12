@@ -214,7 +214,7 @@ export default function HomeComponent({ user, onNavigateToMap, onNavigateToAuth,
           <div className="md:col-span-4">
             <span className="text-[10px] uppercase font-bold tracking-[0.2em] opacity-40 block mb-2">Municipal Trend Analysis</span>
             <h3 className="text-3xl font-serif font-bold italic text-editorial-dark tracking-tight leading-none leading-[0.95]">
-              Active Resolve <br />Speed Improved By 30%
+              Local Report <br />Stats Now Track
             </h3>
           </div>
 
@@ -223,7 +223,7 @@ export default function HomeComponent({ user, onNavigateToMap, onNavigateToAuth,
               <CheckCircle2 className="w-3.5 h-3.5" /> Spotlight Performance
             </span>
             <p className="font-light">
-              Thanks to community snapshots posted this month, over 450 potholes have been resolved. Our spatial registry pushes automated alerts directly to ward dispatch bases.
+              Community snapshots now feed the local statistics dashboard, keeping report totals, ward activity, and category ratios tied to saved records.
             </p>
           </div>
 
