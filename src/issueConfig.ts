@@ -42,7 +42,7 @@ export const normalizeIssueCategory = (categoryId: unknown): IssueCategory => {
 
 export const ISSUE_ANALYSIS_PROMPT = {
   system:
-    "You generate municipal issue reports from images. Return only valid JSON with keys title, category, and description. category must be exactly one of: potholes, graffiti, streetlights, other. Use other when the image is unclear, unrelated, or does not fit the listed civic issue categories.",
+    "You turn civic issue photos into short, natural reports. Return only valid JSON with keys title, category, and description. category must be exactly one of: potholes, graffiti, streetlights, other. Use other when the photo is unclear, unrelated, or does not fit the listed civic issue categories. Write like a normal person filing a city report, not like an image-captioning model.",
   user:
-    "Analyze this image of a civic issue. Classify it into exactly one category: potholes, graffiti, streetlights, or other. Write a concise, professional title and one clear paragraph for description. The description should explain only what is visible in the image and avoid unsupported speculation.",
+    "Classify the civic issue into exactly one category: potholes, graffiti, streetlights, or other. Write a simple, direct title such as Broken streetlight, Large pothole, or Graffiti on wall. Do not write titles like Image of..., Photo showing..., or Dimmed streetlight if Broken streetlight is clearer. Write one natural paragraph for description in plain language. Do not start with phrases like This image shows or The photo depicts. Mention only what can be reasonably seen, and avoid formal or awkward wording.",
 };

@@ -2,22 +2,21 @@ import React, { useEffect, useState, useRef } from "react";
 import { Camera, Edit, MapPin, Upload, ArrowRight, AlertCircle, Trash2, Sparkles, CheckCircle2, LocateFixed } from "lucide-react";
 import { IssueCategory, Issue } from "../types";
 import { ISSUE_CATEGORIES, getIssueCategory, normalizeIssueCategory } from "../issueConfig";
-import { MOCK_LOCATIONS, TORONTO_FALLBACK_LOCATION, resolveMockLocation } from "../locations";
 import { saveCapturedPhoto } from "../photoStorage";
 import {
   getLocationSuggestion,
   resolveBrowserLocation,
-  resolveFallbackLocation,
   resolveReportLocation,
 } from "../geocoding";
 
 interface ReportProps {
-  onAddIssue: (issue: Omit<Issue, "id" | "date" | "votes" | "status" | "votedByUser">) => void;
+  onAddIssue: (issue: Omit<Issue, "date" | "votes" | "status" | "votedByUser">) => void;
   onUpdateIssue: (issueId: string, issue: Omit<Issue, "id" | "date" | "votes" | "status" | "votedByUser">) => void;
   editingIssue: Issue | null;
   onCancelEdit: () => void;
   onOpenSimulator: () => void;
   photoUid: string;
+  reportId: string;
   capturedImage: string | null;
   capturedFallbackType: string | null;
   resetCapturedImage: () => void;
@@ -30,6 +29,7 @@ export default function ReportComponent({
   onCancelEdit,
   onOpenSimulator,
   photoUid,
+  reportId,
   capturedImage,
   capturedFallbackType,
   resetCapturedImage,
@@ -39,7 +39,7 @@ export default function ReportComponent({
   const [title, setTitle] = useState("");
   const [category, setCategory] = useState<IssueCategory>("other");
   const [description, setDescription] = useState("");
-  const [locationAddress, setLocationAddress] = useState(MOCK_LOCATIONS[0].address);
+  const [locationAddress, setLocationAddress] = useState("");
   const [imagePreview, setImagePreview] = useState<string | null>(null);
 
   // AI loading and reporting flow states
@@ -53,13 +53,12 @@ export default function ReportComponent({
   const [locationSuggestion, setLocationSuggestion] = useState<{ label: string; address: string } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const selectedLocation = validatedLocation || resolveMockLocation(locationAddress);
 
   const resetForm = () => {
     setTitle("");
     setCategory("other");
     setDescription("");
-    setLocationAddress(MOCK_LOCATIONS[0].address);
+    setLocationAddress("");
     setImagePreview(null);
     setAiAnalysisMessage("");
     setErrorMsg("");
@@ -69,6 +68,8 @@ export default function ReportComponent({
     setLocationSuggestion(null);
     resetCapturedImage();
   };
+
+  const activeReportId = editingIssue?.id || reportId;
 
   // Trigger real backend OpenAI analysis via /api/analyze-issue
   const analyzePhotoViaOpenAI = async (imageSource: string, fallback: string) => {
@@ -123,11 +124,11 @@ export default function ReportComponent({
       reader.onloadend = async () => {
         const resultBase64 = reader.result as string;
         try {
-          const savedPhoto = await saveCapturedPhoto(resultBase64, photoUid);
+          const savedPhoto = await saveCapturedPhoto(resultBase64, photoUid, activeReportId);
           setImagePreview(savedPhoto.imageUrl);
           analyzePhotoViaOpenAI(savedPhoto.imageUrl, "uploaded_file");
         } catch {
-          setErrorMsg("Photo could not be saved to the local data folder.");
+          setErrorMsg("Photo could not be saved to report storage.");
         }
       };
       reader.readAsDataURL(file);
@@ -193,15 +194,6 @@ export default function ReportComponent({
     }
   };
 
-  const useTorontoCoreFallback = () => {
-    const fallbackLocation = resolveFallbackLocation(TORONTO_FALLBACK_LOCATION.address);
-    setLocationAddress(TORONTO_FALLBACK_LOCATION.address);
-    setValidatedLocation(fallbackLocation);
-    setLocationValidationStatus("fallback");
-    setLocationSuggestion(null);
-    setErrorMsg("");
-  };
-
   const useBrowserLocation = () => {
     if (!navigator.geolocation) {
       setLocationValidationStatus("denied");
@@ -257,6 +249,7 @@ export default function ReportComponent({
     // Dynamic submission callback
     setTimeout(() => {
       const reportData = {
+        id: activeReportId,
         title,
         description,
         category,
@@ -268,7 +261,16 @@ export default function ReportComponent({
       };
 
       if (editingIssue) {
-        onUpdateIssue(editingIssue.id, reportData);
+        onUpdateIssue(editingIssue.id, {
+          title: reportData.title,
+          description: reportData.description,
+          category: reportData.category,
+          location: reportData.location,
+          lat: reportData.lat,
+          lng: reportData.lng,
+          image: reportData.image,
+          ward: reportData.ward,
+        });
       } else {
         onAddIssue(reportData);
       }
@@ -324,7 +326,11 @@ export default function ReportComponent({
       <div id="report-tab-toggles" className="grid grid-cols-2 gap-3 select-none">
         <button
           id="btn-report-ai"
-          onClick={() => setReportMode("snap")}
+          type="button"
+          onClick={() => {
+            setReportMode("snap");
+            onOpenSimulator();
+          }}
           className={`flex flex-col items-center justify-center p-5 rounded-none border transition-all cursor-pointer ${
             reportMode === "snap"
               ? "bg-white border-editorial-dark text-editorial-dark"
@@ -341,6 +347,7 @@ export default function ReportComponent({
 
         <button
           id="btn-report-manual"
+          type="button"
           onClick={() => {
             setReportMode("manual");
             setErrorMsg("");
@@ -473,7 +480,7 @@ export default function ReportComponent({
                   
                   <div className="absolute bottom-3 left-3 bg-editorial-dark text-editorial-bg border border-editorial-dark px-3 py-1.5 flex items-center gap-2">
                     <Sparkles className="w-3.5 h-3.5 text-[#eaf1ff]" />
-                    <span className="text-[9px] uppercase tracking-widest font-bold">Saved to local photo archive</span>
+                    <span className="text-[9px] uppercase tracking-widest font-bold">Saved to report storage</span>
                   </div>
 
                   <button
@@ -561,48 +568,15 @@ export default function ReportComponent({
               </button>
             </div>
 
-            <div className="flex items-center justify-between gap-3">
-              <span className="text-[9px] text-editorial-dark/45 font-bold uppercase tracking-widest">Testing examples</span>
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={useBrowserLocation}
-                  disabled={isResolvingLocation}
-                  className="text-[9px] uppercase tracking-widest text-editorial-dark font-bold hover:opacity-65 border-b border-editorial-dark disabled:opacity-50"
-                >
-                  Use My Location
-                </button>
-                <button
-                  type="button"
-                  onClick={useTorontoCoreFallback}
-                  className="text-[9px] uppercase tracking-widest text-editorial-dark font-bold hover:opacity-65 border-b border-editorial-dark"
-                >
-                  Use Toronto Core
-                </button>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-              {MOCK_LOCATIONS.map((location) => (
-                <button
-                  key={location.address}
-                  type="button"
-                  onClick={() => {
-                    setLocationAddress(location.address);
-                    setValidatedLocation({ ...location, source: "mock" });
-                    setLocationValidationStatus("valid");
-                    setLocationSuggestion(null);
-                    setErrorMsg("");
-                  }}
-                  className={`border px-3 py-2 text-[9px] uppercase tracking-widest font-bold text-left transition-colors ${
-                    locationAddress === location.address
-                      ? "bg-editorial-dark text-editorial-bg border-editorial-dark"
-                      : "bg-white text-editorial-dark border-editorial-dark/40 hover:border-editorial-dark"
-                  }`}
-                >
-                  Example: {location.label}
-                </button>
-              ))}
+            <div className="flex justify-end">
+              <button
+                type="button"
+                onClick={useBrowserLocation}
+                disabled={isResolvingLocation}
+                className="text-[9px] uppercase tracking-widest text-editorial-dark font-bold hover:opacity-65 border-b border-editorial-dark disabled:opacity-50"
+              >
+                Use My Location
+              </button>
             </div>
 
             {locationValidationStatus !== "idle" && (
@@ -664,10 +638,12 @@ export default function ReportComponent({
                 />
               </div>
               <div className="space-y-0.5">
-                <span className="text-xs font-bold text-editorial-dark uppercase tracking-wider block">{selectedLocation.address}</span>
+                <span className="text-xs font-bold text-editorial-dark uppercase tracking-wider block">
+                  {validatedLocation ? validatedLocation.address : "Validate a Toronto address"}
+                </span>
                 <span className="text-[8px] text-editorial-dark/50 font-bold block uppercase flex items-center gap-1 mt-0.5">
                   <MapPin className="w-3 h-3" />
-                  {selectedLocation.ward} &bull; Mock coordinates aligned near Toronto
+                  {validatedLocation ? `${validatedLocation.ward} - resolved from map coordinates` : "Ward appears after address validation"}
                 </span>
               </div>
             </div>
