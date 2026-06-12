@@ -4,6 +4,7 @@ import { saveCapturedPhoto } from "../photoStorage";
 
 interface CameraViewProps {
   uid: string;
+  reportId: string;
   onCapture: (imageData: string, fallbackType: string) => void;
   onClose: () => void;
 }
@@ -16,7 +17,7 @@ interface IssueScenario {
   fallbackType: string;
 }
 
-export default function CameraViewComponent({ uid, onCapture, onClose }: CameraViewProps) {
+export default function CameraViewComponent({ uid, reportId, onCapture, onClose }: CameraViewProps) {
   const [flashOn, setFlashOn] = useState(false);
   const [activeScenarioIdx, setActiveScenarioIdx] = useState(0);
   const [cameraStatus, setCameraStatus] = useState<"starting" | "ready" | "unavailable" | "saving">("starting");
@@ -99,11 +100,11 @@ export default function CameraViewComponent({ uid, onCapture, onClose }: CameraV
     setCameraError("");
 
     try {
-      const savedPhoto = await saveCapturedPhoto(imageData, uid);
+      const savedPhoto = await saveCapturedPhoto(imageData, uid, reportId);
       onCapture(savedPhoto.imageUrl, fallbackType);
     } catch {
       setCameraStatus(streamRef.current ? "ready" : "unavailable");
-      setCameraError("Photo could not be saved to the local data folder.");
+      setCameraError("Photo could not be saved to report storage.");
     }
   };
 
@@ -274,7 +275,7 @@ export default function CameraViewComponent({ uid, onCapture, onClose }: CameraV
 
         <div className="text-[8px] font-bold text-editorial-dark/60 tracking-widest uppercase flex items-center gap-1.5 pt-1.5 selection:bg-transparent">
           <Aperture className="w-3.5 h-3.5 animate-spin-slow" />
-          <span>{cameraStatus === "saving" ? "Saving Local Photo" : cameraStatus === "ready" ? `UID ${uid}` : "Camera Standby"}</span>
+          <span>{cameraStatus === "saving" ? "Saving Photo" : cameraStatus === "ready" ? `UID ${uid}` : "Camera Standby"}</span>
         </div>
         {cameraError && (
           <div className="max-w-sm bg-white border border-editorial-dark px-3 py-2 text-[9px] font-bold uppercase tracking-widest text-editorial-dark text-center">
