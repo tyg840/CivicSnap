@@ -4,6 +4,9 @@ import { User } from "../types";
 import { TORONTO_WARDS_25 } from "../wards";
 import { isSupabaseConfigured, mapSupabaseUser, supabase } from "../supabase";
 
+const configuredAppUrl = import.meta.env.VITE_APP_URL?.replace(/\/$/, "");
+const getAuthRedirectUrl = () => configuredAppUrl || window.location.origin;
+
 interface AuthProps {
   onAuthSuccess: (user: User) => void;
   onCancel?: () => void;
@@ -99,6 +102,7 @@ export default function AuthComponent({ onAuthSuccess, onCancel }: AuthProps) {
             bio: "",
             phone: "",
           },
+          emailRedirectTo: getAuthRedirectUrl(),
         },
       });
 
@@ -130,7 +134,7 @@ export default function AuthComponent({ onAuthSuccess, onCancel }: AuthProps) {
     const { error } = await client.auth.signInWithOAuth({
       provider,
       options: {
-        redirectTo: window.location.origin,
+        redirectTo: getAuthRedirectUrl(),
       },
     });
 
@@ -263,7 +267,7 @@ export default function AuthComponent({ onAuthSuccess, onCancel }: AuthProps) {
                 className="w-full bg-editorial-dark text-editorial-bg font-bold py-3.5 px-4 rounded-none border border-editorial-dark flex items-center justify-center gap-1.5 transition-all text-[10px] uppercase tracking-widest mt-4 cursor-pointer hover:bg-editorial-dark/95"
               >
                 <LogIn className="w-3.5 h-3.5" />
-                <span>{isSubmitting ? "Signing In" : "Sign In With Supabase"}</span>
+                <span>{isSubmitting ? "Signing In" : "Sign In"}</span>
               </button>
             </form>
           ) : (
@@ -342,7 +346,7 @@ export default function AuthComponent({ onAuthSuccess, onCancel }: AuthProps) {
                 className="w-full bg-editorial-dark text-editorial-bg font-bold py-3.5 px-4 rounded-none border border-editorial-dark flex items-center justify-center gap-1.5 transition-all text-[10px] uppercase tracking-widest mt-4 cursor-pointer hover:bg-editorial-dark/95"
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                <span>{isSubmitting ? "Creating Account" : "Create Supabase Account"}</span>
+                <span>{isSubmitting ? "Creating Account" : "Create Account"}</span>
               </button>
             </form>
           )}
@@ -354,7 +358,7 @@ export default function AuthComponent({ onAuthSuccess, onCancel }: AuthProps) {
                 <div className="w-full border-t border-editorial-dark/15" />
               </div>
               <div className="relative flex justify-center text-xs font-semibold">
-                <span className="px-3 bg-white text-editorial-dark/40 uppercase tracking-[0.2em] text-[8px]">Continue with Supabase OAuth</span>
+                <span className="px-3 bg-white text-editorial-dark/40 uppercase tracking-[0.2em] text-[8px]">Continue With OAuth</span>
               </div>
             </div>
 

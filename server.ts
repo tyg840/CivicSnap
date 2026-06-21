@@ -3,7 +3,7 @@ import crypto from "crypto";
 import fs from "fs/promises";
 import path from "path";
 import { createRequire } from "module";
-import { createServer as createViteServer } from "vite";
+import { fileURLToPath } from "url";
 import OpenAI from "openai";
 import dotenv from "dotenv";
 import { ISSUE_ANALYSIS_PROMPT, normalizeIssueCategory } from "./src/issueConfig";
@@ -58,6 +58,11 @@ const sanitizeReportId = (reportId: string) => {
 
 const getReportRoot = (uid: string, reportId: string) => `${sanitizeUid(uid)}/${sanitizeReportId(reportId)}`;
 
+const getPhotoProxyUrl = (uid: string, reportId: string, fileName: string) =>
+  `/api/photo-files/${encodeURIComponent(sanitizeUid(uid))}/${encodeURIComponent(
+    sanitizeReportId(reportId)
+  )}/${encodeURIComponent(fileName)}`;
+
 const uploadBufferToCos = async (key: string, body: Buffer | string, contentType: string) => {
   if (!cosClient || !COS_BUCKET || !COS_REGION) {
     throw new Error("Tencent COS is not configured");
@@ -76,6 +81,62 @@ const uploadBufferToCos = async (key: string, body: Buffer | string, contentType
     : `cos://${COS_BUCKET}/${key}`;
 };
 
+const getCosKeyFromImageUrl = (imageData: string) => {
+  const proxyMatch = imageData.match(/^\/api\/photo-files\/([^/]+)\/([^/]+)\/([^/]+)$/);
+  if (proxyMatch) {
+    const [, uidPart, reportIdPart, filePart] = proxyMatch;
+    const fileName = decodeURIComponent(filePart);
+
+    if (fileName.includes("/") || fileName.includes("\\")) {
+      throw new Error("Invalid proxied image file");
+    }
+
+    return `${getReportRoot(decodeURIComponent(uidPart), decodeURIComponent(reportIdPart))}/files/${fileName}`;
+  }
+
+  if (imageData.startsWith("cos://")) {
+    const cosUrl = new URL(imageData);
+    if (cosUrl.hostname !== COS_BUCKET) {
+      throw new Error("Stored COS image is not in the configured bucket");
+    }
+
+    return decodeURIComponent(cosUrl.pathname.replace(/^\/+/, ""));
+  }
+
+  if (!COS_PUBLIC_BASE_URL || !imageData.startsWith(`${COS_PUBLIC_BASE_URL}/`)) {
+    return null;
+  }
+
+  return imageData
+    .slice(COS_PUBLIC_BASE_URL.length + 1)
+    .split("/")
+    .map(decodeURIComponent)
+    .join("/");
+};
+
+const readCosImageAsDataUrl = async (key: string) => {
+  if (!cosClient || !COS_BUCKET || !COS_REGION) {
+    throw new Error("Tencent COS is not configured");
+  }
+
+  const extension = path.extname(key).slice(1).toLowerCase();
+  const mimeType = Object.entries(imageMimeToExtension).find(([, ext]) => ext === extension)?.[0];
+
+  if (!mimeType) {
+    throw new Error("Unsupported COS image file");
+  }
+
+  const response = await cosClient.getObject({
+    Bucket: COS_BUCKET,
+    Region: COS_REGION,
+    Key: key,
+  });
+  const body = response.Body;
+  const imageBuffer = Buffer.isBuffer(body) ? body : Buffer.from(body);
+
+  return `data:${mimeType};base64,${imageBuffer.toString("base64")}`;
+};
+
 const parseImageDataUrl = (imageData: string) => {
   const match = imageData.match(/^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/=]+)$/);
 
@@ -92,6 +153,11 @@ const parseImageDataUrl = (imageData: string) => {
 const getImageDataForAnalysis = async (imageData: string) => {
   if (imageData.startsWith("data:")) {
     return imageData;
+  }
+
+  const cosKey = getCosKeyFromImageUrl(imageData);
+  if (cosKey) {
+    return readCosImageAsDataUrl(cosKey);
   }
 
   if (!imageData.startsWith("/data/")) {
@@ -185,7 +251,8 @@ app.post("/api/photos", async (req, res) => {
     let storageProvider: "cos" | "local";
 
     if (isCosConfigured) {
-      imageUrl = await uploadBufferToCos(cosKey, parsedImage.buffer, parsedImage.mimeType);
+      await uploadBufferToCos(cosKey, parsedImage.buffer, parsedImage.mimeType);
+      imageUrl = getPhotoProxyUrl(safeUid, safeReportId, fileName);
       storageProvider = "cos";
     } else {
       await fs.mkdir(userDataPath, { recursive: true });
@@ -206,6 +273,43 @@ app.post("/api/photos", async (req, res) => {
     console.error("Photo Storage Error:", error);
     return res.status(500).json({
       error: "Photo could not be saved",
+      details: error.message || error,
+    });
+  }
+});
+
+app.get("/api/photo-files/:uid/:reportId/:fileName", async (req, res) => {
+  const safeUid = sanitizeUid(req.params.uid || "anonymous_user");
+  const safeReportId = sanitizeReportId(req.params.reportId || "");
+  const fileName = decodeURIComponent(req.params.fileName || "");
+  const extension = path.extname(fileName).slice(1).toLowerCase();
+  const mimeType = Object.entries(imageMimeToExtension).find(([, ext]) => ext === extension)?.[0];
+
+  if (!mimeType || fileName.includes("/") || fileName.includes("\\")) {
+    return res.status(400).json({ error: "Invalid photo file" });
+  }
+
+  if (!isCosConfigured || !cosClient || !COS_BUCKET || !COS_REGION) {
+    return res.status(404).json({ error: "Photo proxy is only available for COS storage" });
+  }
+
+  try {
+    const objectKey = `${getReportRoot(safeUid, safeReportId)}/files/${fileName}`;
+    const response = await cosClient.getObject({
+      Bucket: COS_BUCKET,
+      Region: COS_REGION,
+      Key: objectKey,
+    });
+    const body = response.Body;
+    const imageBuffer = Buffer.isBuffer(body) ? body : Buffer.from(body);
+
+    res.setHeader("Content-Type", mimeType);
+    res.setHeader("Cache-Control", "private, max-age=300");
+    return res.send(imageBuffer);
+  } catch (error: any) {
+    console.error("Photo Proxy Error:", error);
+    return res.status(404).json({
+      error: "Photo could not be loaded",
       details: error.message || error,
     });
   }
@@ -453,6 +557,7 @@ app.post("/api/analyze-issue", async (req, res) => {
 async function startServer() {
   // Vite integration
   if (process.env.NODE_ENV !== "production") {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",
@@ -460,7 +565,7 @@ async function startServer() {
     app.use(vite.middlewares);
     console.log("Vite development server loaded as custom middleware.");
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const distPath = path.dirname(fileURLToPath(import.meta.url));
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));

@@ -7,9 +7,10 @@
    `bun install`
 2. Set `API_KEY` and `APP_ID` in [.env.local](.env.local) for Qianfan live vision analysis. The app uses `https://qianfan.baidubce.com/v2` with model `qwen3.5-397b-a17b`.
 3. Set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` from Supabase Project Settings -> API to enable Supabase Auth.
-4. Enable any OAuth providers, such as Google or Apple, in the Supabase dashboard. Add `http://localhost:3000` to the allowed redirect URLs for local development.
-5. Set `TENCENT_SECRET_ID`, `TENCENT_SECRET_KEY`, `TENCENT_COS_BUCKET`, and `TENCENT_COS_REGION` to save report photos and report JSON to Tencent Cloud COS. `TENCENT_COS_PUBLIC_BASE_URL` is optional, but recommended when uploaded images need browser-visible URLs.
-6. Run the app:
+4. Set `VITE_APP_URL` to the public app URL, such as `https://civicsnap.ca`, so Supabase email verification and OAuth redirects return to the deployed site.
+5. In Supabase Auth URL Configuration, set the Site URL to `https://civicsnap.ca` and add `https://civicsnap.ca`, `https://civicsnap.ca/*`, and `http://localhost:3000` to the redirect URLs. Keep the localhost URL only if you still use local development auth.
+6. Set `TENCENT_SECRET_ID`, `TENCENT_SECRET_KEY`, `TENCENT_COS_BUCKET`, and `TENCENT_COS_REGION` to save report photos and report JSON to Tencent Cloud COS. `TENCENT_COS_PUBLIC_BASE_URL` is optional, but recommended when uploaded images need browser-visible URLs.
+7. Run the app:
    `bun run dev`
 
 ## Toronto 311 API Test Script
